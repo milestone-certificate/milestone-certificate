@@ -33,7 +33,7 @@ import { SvpReschedulePanel } from "@/components/app/SvpReschedulePanel";
 import { SvpCardPayment, SvpPaymentPage } from "@/components/app/SvpCardPayment";
 import { SvpDateCalendar } from "@/components/app/SvpDateCalendar";
 import { SvpResultPanel } from "@/components/app/SvpResultPanel";
-import type { SvpExamSessionView } from "@/components/app/SvpExamSessionsTable";
+import { SvpSessionOptions, type SvpSessionOption } from "@/components/app/SvpSessionOptions";
 import { supabase } from "@/integrations/supabase/client";
 import {
   cancelSvpReservation,
@@ -901,7 +901,7 @@ export function SvpBookingWizard() {
         startAt: slot.startAt,
         endAt: null,
         duration: slot.duration,
-        availableSeats: null,
+        availableSeats: slot.availableSeats ?? null,
         city: site?.city ?? city,
         centerName: site?.name ?? null,
         siteId: slot.siteId,
@@ -997,7 +997,9 @@ export function SvpBookingWizard() {
   const continueFromDates = () => {
     if (isTargeted) {
       // Load-balancer dates may preselect nothing yet; fall back to the first token.
-      const session = selectedSession ?? visibleExamSessions[0] ?? null;
+      const session =
+        selectedSession ?? visibleExamSessions.find((entry) => entry.availableSeats !== 0) ?? null;
+      if (!session || session.availableSeats === 0) return;
       if (session && !selectedSession) setSelectedSession(session);
       targetedHoldMutation.mutate(session ?? undefined);
       return;
@@ -1489,29 +1491,39 @@ export function SvpBookingWizard() {
       ? splitDateTime(selectedDate.startAt).date
       : ""
     : (prometricDate ?? "");
-  // Load-balancer sessions are date-only capacity tokens: show one row per date/city
-  // and let SVP assign the real test center and time when the seat is held.
+  // Collapse identical capacity tokens, keeping distinct center/time/seat details.
   const visibleExamSessions = isTargeted
     ? examSessions.filter((entry, index, list) => {
         if (!isLoadBalancer) return true;
-        const key = `${entry.startAt}|${entry.city ?? ""}`;
-        return list.findIndex((other) => `${other.startAt}|${other.city ?? ""}` === key) === index;
+        const key = (session: SvpExamSession) =>
+          JSON.stringify([
+            session.startAt,
+            session.endAt,
+            session.city,
+            session.centerName,
+            session.availableSeats,
+          ]);
+        return list.findIndex((other) => key(other) === key(entry)) === index;
       })
     : examSessions;
   // Show the first SVP session as soon as the date loads.
   useEffect(() => {
     if (!isTargeted || stage !== "dates" || !sessionsQuery.data?.ok) return;
     // Keep a valid selection after refresh; never book a session that disappeared.
-    const current = visibleExamSessions.find((entry) => entry.id === selectedSession?.id);
-    const next = current ?? visibleExamSessions[0] ?? null;
+    const current = visibleExamSessions.find(
+      (entry) => entry.id === selectedSession?.id && entry.availableSeats !== 0,
+    );
+    const next = current ?? visibleExamSessions.find((entry) => entry.availableSeats !== 0) ?? null;
     if (next !== selectedSession) setSelectedSession(next);
   }, [isTargeted, selectedSession, sessionsQuery.data, stage, visibleExamSessions]);
 
   // Site-based dates also resolve their first test center as soon as the date is chosen.
   useEffect(() => {
     if (isTargeted || stage !== "dates" || !slotsQuery.data?.ok) return;
-    const current = prometricSlots.find((slot) => slot.id === selectedSlot?.id);
-    const next = current ?? prometricSlots[0] ?? null;
+    const current = prometricSlots.find(
+      (slot) => slot.id === selectedSlot?.id && slot.availableSeats !== 0,
+    );
+    const next = current ?? prometricSlots.find((slot) => slot.availableSeats !== 0) ?? null;
     if (next === selectedSlot) return;
     if (next) chooseSlot(next);
     else {
@@ -1520,7 +1532,7 @@ export function SvpBookingWizard() {
     }
   }, [chooseSlot, isTargeted, prometricSlots, selectedSlot, slotsQuery.data, stage]);
 
-  const sessionViews: SvpExamSessionView[] = isTargeted
+  const sessionViews: SvpSessionOption[] = isTargeted
     ? visibleExamSessions.map((entry) => ({
         key: `s-${entry.id}`,
         startAt: entry.startAt,
@@ -1528,8 +1540,6 @@ export function SvpBookingWizard() {
         center: entry.centerName,
         city: entry.city ?? sessionCity,
         seats: entry.availableSeats,
-        duration: entry.duration,
-        durationUnit: "seconds",
         selected: selectedSession?.id === entry.id && !selectedSlot,
         onSelect: () => {
           setSelectedSession(entry);
@@ -1546,18 +1556,12 @@ export function SvpBookingWizard() {
           startAt: slot.startAt,
           center: site?.name ?? null,
           city: site?.city ?? city,
-          seats: null as number | null,
-          duration: slot.duration,
-          durationUnit: "minutes",
+          seats: slot.availableSeats ?? null,
           selected: selectedSlot?.id === slot.id,
           onSelect: () => chooseSlot(slot),
         };
       });
-  // The date click resolves the real test center; show it directly without a session list.
-  const activeSessionView = sessionViews.find((view) => view.selected) ?? sessionViews[0] ?? null;
-  const sessionTimeLabel = activeSessionView?.startAt
-    ? splitDateTime(activeSessionView.startAt).time
-    : "";
+  const activeSessionView = sessionViews.find((view) => view.selected) ?? null;
   const sessionsLoading = isTargeted ? sessionsQuery.isFetching : slotsQuery.isFetching;
   const sessionsError = isTargeted
     ? sessionsQuery.data && !sessionsQuery.data.ok
@@ -2368,7 +2372,7 @@ export function SvpBookingWizard() {
 
             {activeDateValue && (
               <div className="space-y-2">
-                {sessionsLoading && !activeSessionView && (
+                {sessionsLoading && (
                   <p
                     className="flex items-center gap-2 text-sm text-muted-foreground"
                     role="status"
@@ -2381,52 +2385,18 @@ export function SvpBookingWizard() {
                     {sessionsError}
                   </p>
                 )}
-                {sessionsLoaded && !sessionsLoading && !activeSessionView && (
+                {sessionsLoaded && !sessionsLoading && sessionViews.length === 0 && (
                   <p className="text-sm text-muted-foreground" role="status">
                     No sessions available. Choose another date.
                   </p>
                 )}
-                {activeSessionView && (
-                  <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Test center
-                      </p>
-                      {sessionsLoading && (
-                        <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {activeSessionView.center ?? activeSessionView.city ?? "SVP test center"}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatDateOnly(activeDateValue)}
-                        {sessionTimeLabel ? ` · ${sessionTimeLabel}` : ""}
-                        {` · ${activeSessionView.city ?? city}`}
-                        {` · ${activeLanguageLabel}`}
-                      </p>
-                    </div>
-                    {sessionViews.length > 1 && (
-                      <Field label="Test center">
-                        <NativeSelect
-                          value={activeSessionView.key}
-                          onChange={(event) => {
-                            const view = sessionViews.find(
-                              (entry) => entry.key === event.target.value,
-                            );
-                            view?.onSelect();
-                          }}
-                        >
-                          {sessionViews.map((view) => (
-                            <option key={view.key} value={view.key}>
-                              {view.center ?? view.city ?? "SVP test center"}
-                              {view.startAt ? ` · ${formatSlot(view.startAt)}` : ""}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      </Field>
-                    )}
+                {sessionViews.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Test center</p>
+                    <SvpSessionOptions
+                      views={sessionViews}
+                      disabled={sessionsLoading || Boolean(sessionsError)}
+                    />
                   </div>
                 )}
 

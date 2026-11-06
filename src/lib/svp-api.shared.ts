@@ -65,6 +65,7 @@ export type SvpPrometricSlot = {
   siteId: number | null;
   startAt: string;
   duration: number;
+  availableSeats?: number | null;
 };
 
 export type SvpEligibilityKey =
@@ -489,8 +490,8 @@ export function parseSvpExamSessions(payload: unknown): SvpExamSession[] {
       const id = typeof idValue === "number" ? idValue : String(idValue);
       const center = asRecord(record["test_center"]);
       const rawStartAt =
-        text(record["startDateTime"]) ??
         text(record["start_at_in_tc_time_zone"]) ??
+        text(record["startDateTime"]) ??
         text(record["start_at"]) ??
         text(record["start_date_in_tc_time_zone"]) ??
         text(record["start_date_in_browser_time_zone"]) ??
@@ -505,7 +506,12 @@ export function parseSvpExamSessions(payload: unknown): SvpExamSession[] {
         duration: number(record["duration"]) ?? 0,
         availableSeats: number(record["available_seats"]),
         city: text(center?.["city"]) ?? text(record["city"]),
-        centerName: text(center?.["name"]) ?? text(center?.["test_center_name"]),
+        centerName:
+          text(center?.["name"]) ??
+          text(center?.["english_name"]) ??
+          text(center?.["test_center_name"]) ??
+          text(record["test_center_name"]) ??
+          text(record["center_name"]),
         siteId: number(record["site_id"]),
       };
     })
@@ -940,15 +946,18 @@ export function parseSvpPrometricSlots(payload: unknown): SvpPrometricSlot[] {
       const slot = asRecord(value);
       const id = slot?.["id"];
       const rawStartAt =
+        text(slot?.["start_at_in_tc_time_zone"]) ??
         text(slot?.["startDateTime"]) ??
-        text(slot?.["start_at"]) ??
-        text(slot?.["start_at_in_tc_time_zone"]);
+        text(slot?.["start_at"]);
       if (!slot || id === undefined || id === null || !rawStartAt) continue;
       slots.push({
         id: String(id),
         siteId: number(slot["site_id"]) ?? siteId,
         startAt: normalizeSvpDate(rawStartAt),
         duration: number(slot["duration"]) ?? 0,
+        ...(slot["available_seats"] !== undefined
+          ? { availableSeats: number(slot["available_seats"]) }
+          : {}),
       });
     }
   }

@@ -280,6 +280,7 @@ describe("SVP response parsers", () => {
           {
             id: "session-local-time",
             start_at: "2026-10-28T03:30:00Z",
+            startDateTime: "2026-10-28T03:30:00Z",
             start_at_in_tc_time_zone: "2026-10-28 09:30:00",
             end_at: "2026-10-28T04:30:00Z",
             end_at_in_tc_time_zone: "2026-10-28 10:30:00",
@@ -296,6 +297,38 @@ describe("SVP response parsers", () => {
         duration: 0,
       }),
     ]);
+  });
+
+  it("preserves flat test-center names and site slot seat counts", () => {
+    const centerName =
+      "Cumilla Technical Training Centre, Assessment and Skill Verification Campus";
+    expect(
+      parseSvpExamSessions({
+        sessions: [
+          {
+            id: 501,
+            start_at: "2026-12-01 09:30:00",
+            test_center_name: centerName,
+            available_seats: "7",
+          },
+        ],
+      })[0],
+    ).toMatchObject({ centerName, availableSeats: 7 });
+    expect(
+      parseSvpPrometricSlots([
+        {
+          site_id: 9,
+          slots: [
+            {
+              id: "slot-local",
+              startDateTime: "2026-12-01T03:30:00Z",
+              start_at_in_tc_time_zone: "2026-12-01 09:30:00",
+              available_seats: 0,
+            },
+          ],
+        },
+      ])[0],
+    ).toMatchObject({ startAt: "2026-12-01 09:30:00", availableSeats: 0 });
   });
 
   it("reads the created reservation id and the account reservation list", () => {

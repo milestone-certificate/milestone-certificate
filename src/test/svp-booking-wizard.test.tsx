@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SvpBookingWizard } from "@/components/app/SvpBookingWizard";
 
@@ -469,13 +469,17 @@ describe("SVP booking wizard", () => {
     renderWizard();
     await openDatesStep();
     await pickDate("5 Nov 2026");
-    // The date click resolves the test center directly; no session list or placeholder table.
-    expect(await screen.findByRole("option", { name: /Second Dhaka Center/ })).toBeInTheDocument();
+    const secondCenter = await screen.findByRole("button", { name: /Second Dhaka Center/ });
+    expect(within(secondCenter).getByText("13:00")).toBeInTheDocument();
+    expect(within(secondCenter).getByText("12")).toBeInTheDocument();
+    const firstCenter = screen.getByRole("button", { name: /Dhaka Center.*09:30/ });
+    expect(within(firstCenter).getByText("09:30 – 10:30")).toBeInTheDocument();
+    expect(within(firstCenter).getByText("7")).toBeInTheDocument();
+    fireEvent.click(secondCenter);
+    expect(secondCenter).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText(/SVP sessions for this date/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Session 1/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Not provided by SVP/)).not.toBeInTheDocument();
-    const centerPicker = await screen.findByLabelText("Test center");
-    expect(centerPicker).toBeInTheDocument();
     // The city is chosen on Step 1; Step 2 starts with the date and then loads the test center.
     expect(screen.queryByLabelText(/Test center city/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Real booking payload/)).not.toBeInTheDocument();
@@ -1168,6 +1172,13 @@ describe("load-balancer targeted booking", () => {
           centerName: null,
           siteId: null,
         },
+        {
+          ...session,
+          id: "token-3",
+          startAt: "2026-11-05",
+          centerName: "Cumilla Technical Training Centre, Assessment and Skill Verification Campus",
+          availableSeats: 8,
+        },
       ],
     });
     mocks.targetedHold.mockResolvedValue({
@@ -1198,6 +1209,9 @@ describe("load-balancer targeted booking", () => {
     await pickDate("5 Nov 2026");
     // The date click shows the test center directly instead of an SVP session list.
     expect(await screen.findByText("Test center")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Cumilla Technical Training Centre/ }),
+    ).toHaveTextContent("8");
     expect(screen.queryByText(/SVP sessions for this date/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Session 1/)).not.toBeInTheDocument();
     // Load-balancer tokens are date-only: the first token is preselected, all are held.
@@ -1206,7 +1220,7 @@ describe("load-balancer targeted booking", () => {
 
     await waitFor(() =>
       expect(mocks.targetedHold).toHaveBeenCalledWith({
-        data: { examSessionId: ["token-1", "token-2"], categoryId: 159, countryId: 4 },
+        data: { examSessionId: ["token-1", "token-2", "token-3"], categoryId: 159, countryId: 4 },
       }),
     );
     await waitFor(() =>

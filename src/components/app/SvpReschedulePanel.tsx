@@ -1,17 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  CalendarDays,
-  CheckCircle2,
-  Clock3,
-  LoaderCircle,
-  MapPin,
-  RotateCcw,
-  X,
-} from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock3, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, NativeSelect } from "@/components/app/ui-bits";
+import { SvpSessionOptions } from "@/components/app/SvpSessionOptions";
 import {
   getSvpReservationDetail,
   listSvpExamSessions,
@@ -386,6 +379,13 @@ export function SvpReschedulePanel({
         : prometricSlots,
     [prometricSlots, selectedCenterKey, takamolCenters, takamolSlotMappings],
   );
+  const slotSeats = useCallback(
+    (slot: SvpPrometricSlot) =>
+      slot.availableSeats ??
+      takamolSlotMappings.find((entry) => entry.slot?.id === slot.id)?.row.seats ??
+      null,
+    [takamolSlotMappings],
+  );
   const sessionDate = selectedDate ? splitDateTime(selectedDate.startAt).date : "";
   const sessionCity = selectedDate?.city ?? city;
   const sessionsQuery = useQuery({
@@ -410,7 +410,10 @@ export function SvpReschedulePanel({
     : null;
   const currentSlot = selectedSlot
     ? (visiblePrometricSlots.find(
-        (slot) => slot.id === selectedSlot.id && slot.siteId === selectedSlot.siteId,
+        (slot) =>
+          slot.id === selectedSlot.id &&
+          slot.siteId === selectedSlot.siteId &&
+          slotSeats(slot) !== 0,
       ) ?? null)
     : null;
   const availabilityQuery = isTargeted ? sessionsQuery : slotsQuery;
@@ -555,7 +558,7 @@ export function SvpReschedulePanel({
         startAt: slot.startAt,
         endAt: null,
         duration: slot.duration,
-        availableSeats: null,
+        availableSeats: slot.availableSeats ?? null,
         city: site?.city ?? city,
         centerName: site?.name ?? null,
         siteId: slot.siteId,
@@ -566,8 +569,9 @@ export function SvpReschedulePanel({
 
   useEffect(() => {
     if (isTargeted || !prometricDate || selectedSlot || visiblePrometricSlots.length === 0) return;
-    chooseSlot(visiblePrometricSlots[0]!);
-  }, [chooseSlot, isTargeted, prometricDate, selectedSlot, visiblePrometricSlots]);
+    const next = visiblePrometricSlots.find((slot) => slotSeats(slot) !== 0);
+    if (next) chooseSlot(next);
+  }, [chooseSlot, isTargeted, prometricDate, selectedSlot, slotSeats, visiblePrometricSlots]);
 
   if (detailQuery.isPending) {
     return (
@@ -703,9 +707,10 @@ export function SvpReschedulePanel({
     ? sessions.map((entry) => ({
         key: `s-${entry.id}`,
         startAt: entry.startAt,
-        center: entry.centerName ?? entry.city ?? city,
+        endAt: entry.endAt,
+        center: entry.centerName,
+        city: entry.city ?? city,
         seats: entry.availableSeats,
-        duration: entry.duration,
         selected: selectedSession?.id === entry.id && !selectedSlot,
         onSelect: () => {
           setSelectedSession(entry);
@@ -718,9 +723,9 @@ export function SvpReschedulePanel({
         return {
           key: `p-${slot.id}`,
           startAt: slot.startAt,
-          center: site?.name ?? site?.city ?? takamolMatch?.row.centerName ?? city,
-          seats: takamolMatch?.row.seats ?? null,
-          duration: slot.duration,
+          center: site?.name ?? takamolMatch?.row.centerName ?? null,
+          city: site?.city ?? city,
+          seats: slotSeats(slot),
           selected: selectedSlot?.id === slot.id,
           onSelect: () => chooseSlot(slot),
         };
@@ -996,33 +1001,7 @@ export function SvpReschedulePanel({
               No sessions available.
             </p>
           )}
-          <div className="grid gap-2 md:grid-cols-2">
-            {sessionViews.map((view) => (
-              <button
-                key={view.key}
-                type="button"
-                onClick={view.onSelect}
-                className={`rounded-xl border p-3 text-left text-sm transition-colors ${
-                  view.selected
-                    ? "border-primary bg-primary-soft"
-                    : "bg-card hover:border-primary/50"
-                }`}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-semibold">{formatSlot(view.startAt)}</span>
-                  {view.selected && <CheckCircle2 className="h-4 w-4 text-primary" />}
-                </span>
-                <span className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <MapPin className="h-3.5 w-3.5" /> {view.center}
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {view.seats !== null ? `Seats: ${view.seats} · ` : ""}Duration:{" "}
-                  {view.duration || "—"}
-                  {isTargeted ? "s" : " min"}
-                </span>
-              </button>
-            ))}
-          </div>
+          <SvpSessionOptions views={sessionViews} disabled={sessionsLoading || sessionsFailed} />
         </div>
       )}
 

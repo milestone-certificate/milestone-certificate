@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SvpReschedulePanel } from "@/components/app/SvpReschedulePanel";
 
@@ -173,6 +173,33 @@ function renderPanel(props?: {
 }
 
 describe("SVP reschedule panel", () => {
+  it("shows the complete center name with its own time range and available seats", async () => {
+    const centerName =
+      "Cumilla Technical Training Centre, Assessment and Skill Verification Campus";
+    mocks.sessions.mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          id: 777,
+          startAt: "2026-12-01 11:00:00",
+          endAt: "2026-12-01 12:00:00",
+          duration: 3600,
+          availableSeats: 4,
+          centerName,
+          city: "Dhaka",
+          siteId: null,
+        },
+      ],
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    const center = await screen.findByRole("button", { name: new RegExp(centerName) });
+    expect(within(center).getByText(centerName)).toBeInTheDocument();
+    expect(within(center).getByText("11:00 – 12:00")).toBeInTheDocument();
+    expect(within(center).getByText("4")).toBeInTheDocument();
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+
   it("reschedules through the real SVP endpoint with the chosen session and language", async () => {
     renderPanel();
 
