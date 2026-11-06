@@ -430,13 +430,21 @@ export function SvpBookingWizard() {
     [occupationSearchQuery.data],
   );
   const suggestions = useMemo(() => {
-    if (debouncedOccupationSearch.length < 1) return filteredOccupations.slice(0, 12);
+    const needle = occupationSearch.trim().toLowerCase();
+    if (!needle) return filteredOccupations.slice(0, 12);
+    // Some SVP responses ignore the search term and return the entire catalogue.
+    // Keep matching local entries visible, then add matching remote-only entries.
+    const matchingSearchResults = searchResults.filter((entry) =>
+      [entry.name, entry.arabicName, entry.occupationKey, entry.categoryName].some((value) =>
+        value?.toLowerCase().includes(needle),
+      ),
+    );
     const merged = new Map<number, SvpOccupation>();
-    for (const entry of [...searchResults, ...filteredOccupations]) {
+    for (const entry of [...filteredOccupations, ...matchingSearchResults]) {
       if (!merged.has(entry.id)) merged.set(entry.id, entry);
     }
     return [...merged.values()].slice(0, 40);
-  }, [debouncedOccupationSearch, filteredOccupations, searchResults]);
+  }, [occupationSearch, filteredOccupations, searchResults]);
   const occupationSearchPending =
     occupationSearch.trim() !== debouncedOccupationSearch || occupationSearchQuery.isFetching;
 

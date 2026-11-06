@@ -583,6 +583,34 @@ describe("SVP booking wizard", () => {
 });
 
 describe("occupation auto-suggest", () => {
+  it("keeps matching occupations visible when SVP returns an unfiltered catalogue", async () => {
+    const loading = {
+      ...occupation,
+      id: 77,
+      name: "Load and Unload Worker",
+      occupationKey: "933301",
+    };
+    const unrelated = Array.from({ length: 45 }, (_, index) => ({
+      ...occupation,
+      id: 100 + index,
+      name: `Unrelated occupation ${index}`,
+    }));
+    mocks.occupations.mockResolvedValue({ ok: true, data: [...unrelated, loading] });
+    mocks.search.mockResolvedValue({ ok: true, data: [...unrelated, loading] });
+    renderWizard();
+    const input = await screen.findByLabelText("Occupation *");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "load" } });
+    await waitFor(() => expect(mocks.search).toHaveBeenCalledWith({ data: { query: "load" } }));
+    await waitFor(() =>
+      expect(screen.queryByText(/Searching similar occupations/)).not.toBeInTheDocument(),
+    );
+    const option = await screen.findByRole("button", { name: /Load and Unload Worker/ });
+    expect(screen.queryByRole("button", { name: /Unrelated occupation/ })).not.toBeInTheDocument();
+    fireEvent.click(option);
+    expect(screen.getByText(/Selected: Load and Unload Worker/)).toBeInTheDocument();
+  });
+
   it("searches SVP for similar occupations while typing", async () => {
     mocks.occupations.mockResolvedValue({
       ok: true,
