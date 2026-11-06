@@ -603,11 +603,19 @@ export const createSvpBooking = createServerFn({ method: "POST" })
               category_id: data.categoryId,
             },
           },
-        ).catch(() => null);
+        );
+        if (!hold.ok) {
+          return failure(
+            apiFailure(hold.payload, "SVP could not hold this seat. Choose another session."),
+          );
+        }
         // SVP assigns the session token to book on the hold; in load-balancer mode it
         // differs from the requested id, so the reservation must use the assigned one.
-        const assigned = hold?.ok ? parseSvpHoldSessionId(hold.payload) : null;
-        if (assigned !== null) bookSessionId = assigned;
+        const assigned = parseSvpHoldSessionId(hold.payload);
+        if (assigned === null) {
+          return failure("SVP did not assign a session for this date. Choose another session.");
+        }
+        bookSessionId = assigned;
       }
 
       if (data.holdId) {
@@ -654,8 +662,9 @@ export const createSvpBooking = createServerFn({ method: "POST" })
       for (const code of languageCodes.slice(1)) {
         if (create.ok) break;
         const message = parseSvpError(create.payload);
-        // 422 validation failures may also be the language code; try the SVP-owned codes.
-        if (!isSvpLanguageRejection(message) && create.status !== 422) break;
+        // Only retry an explicit language validation error; preserve the selected
+        // language for unrelated validation or ambiguous server failures.
+        if (create.status !== 422 || !isSvpLanguageRejection(message)) break;
         create = await svpAuthedRequest(
           context.userId,
           "/individual_labor_space/exam_reservations",
@@ -1054,7 +1063,10 @@ export const rescheduleSvpBooking = createServerFn({ method: "POST" })
       if (assignedRaw === 0 || assignedRaw === "0") {
         return failure("SVP did not assign a session for this date. Choose another session.");
       }
-      const assignedSessionId = parseSvpHoldSessionId(hold.payload) ?? data.examSessionId;
+      const assignedSessionId = parseSvpHoldSessionId(hold.payload);
+      if (assignedSessionId === null) {
+        return failure("SVP did not assign a session for this date. Choose another session.");
+      }
 
       // SVP rejects a language code that is not one of its prometric codes; retry with
       // the SVP-owned codes exactly like the booking flow.
@@ -1077,7 +1089,7 @@ export const rescheduleSvpBooking = createServerFn({ method: "POST" })
       for (const code of languageCodes.slice(1)) {
         if (response.ok) break;
         const message = parseSvpError(response.payload);
-        if (!isSvpLanguageRejection(message) && response.status !== 422) break;
+        if (response.status !== 422 || !isSvpLanguageRejection(message)) break;
         response = await svpAuthedRequest(context.userId, path, {
           method: "POST",
           query: LOCALE_QUERY,
@@ -1318,7 +1330,11 @@ export const rescheduleSvpSiteBooking = createServerFn({ method: "POST" })
       const holdRoot = record(hold.payload);
       const holdPayload = record(holdRoot?.["data"]) ?? holdRoot;
       const holdValue = holdPayload?.["id"] ?? holdRoot?.["id"];
-      const holdId = holdValue === undefined || holdValue === null ? null : String(holdValue);
+      const holdId =
+        holdValue === undefined || holdValue === null ? null : String(holdValue).trim();
+      if (!holdId || holdId === "0") {
+        return failure("SVP did not return a seat hold. Choose another slot.");
+      }
 
       if (holdId) {
         await svpAuthedRequest(context.userId, "/individual_labor_space/temporary_seats", {
@@ -1354,7 +1370,9 @@ export const rescheduleSvpSiteBooking = createServerFn({ method: "POST" })
         },
       });
 
-      if (!response.ok) {
+      // Retry only a rejected payload; server/network errors may follow a successful
+      // mutation and must not submit the same reschedule twice.
+      if (!response.ok && response.status === 422) {
         response = await svpAuthedRequest(context.userId, path, {
           method: "POST",
           query: LOCALE_QUERY,
