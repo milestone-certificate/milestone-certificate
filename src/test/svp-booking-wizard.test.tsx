@@ -1213,52 +1213,121 @@ describe("load-balancer targeted booking", () => {
   });
 });
 
-describe("Takamol availability selection", () => {
-  it("selects the real SVP session when a Takamol row is clicked", async () => {
+describe("SVP availability selection", () => {
+  it("loads SVP centers and continues when Takamol is unavailable, without requesting Takamol sessions", async () => {
     mocks.takamol.mockImplementation((request: { data: { endpoint: string } }) =>
-      Promise.resolve(
-        request?.data?.endpoint === "occupations"
-          ? {
-              success: true,
-              data: {
-                occupations: [{ id: 159, occupation_id: 11, language_code: "en" }],
-              },
-            }
-          : {
-              success: true,
-              data: {
-                sessions: [
-                  {
-                    id: "avail-1",
-                    center_name: "Khulna Technical Training Centre",
-                    exam_time: "2:00 PM",
-                    seats: 5,
-                    exam_slot: "Available",
-                    language_name: "Bengali",
-                  },
-                ],
-              },
-            },
-      ),
+      request.data.endpoint === "sessions"
+        ? new Promise(() => {})
+        : Promise.resolve({
+            success: false,
+            status: 502,
+            message: "Takamol availability is temporarily unavailable. Try again later.",
+          }),
     );
-
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
-    fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
-    pickLanguage();
-    fireEvent.change(await screen.findByLabelText("Test center city"), {
-      target: { value: "Dhaka" },
-    });
-    await clickContinue();
-    await screen.findByText(/Step 2/);
+    await openDatesStep();
     await pickDate("5 Nov 2026");
 
-    expect(await screen.findByText(/Live availability · Takamol API/)).toBeInTheDocument();
-    // The language comes from the API, not the manual dropdown.
-    expect(screen.getByText("Bengali")).toBeInTheDocument();
-    expect(screen.getByText(/Takamol lists Bengali for this date/)).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Selected" })).toBeInTheDocument();
+    expect(await screen.findByText("Dhaka Center")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(
+      screen.queryByText(/Takamol|Dates and sessions come live|Select an available date first/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh availability" })).not.toBeInTheDocument();
+    expect(mocks.takamol).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ endpoint: "sessions" }) }),
+    );
+    await clickContinue();
+    await waitFor(() =>
+      expect(mocks.targetedHold).toHaveBeenCalledWith({
+        data: { examSessionId: 501, categoryId: 159, countryId: 4 },
+      }),
+    );
+  });
+
+  it("selects the latest SVP session after refreshing instead of booking a removed session", async () => {
+    renderWizard();
+    await openDatesStep();
+    await pickDate("5 Nov 2026");
+    await screen.findByText("Dhaka Center");
+    mocks.sessions.mockResolvedValue({
+      ok: true,
+      data: [{ ...session, id: 502, centerName: "Updated Dhaka Center" }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+    expect(await screen.findByText("Updated Dhaka Center")).toBeInTheDocument();
+    await clickContinue();
+    await waitFor(() =>
+      expect(mocks.targetedHold).toHaveBeenCalledWith({
+        data: { examSessionId: 502, categoryId: 159, countryId: 4 },
+      }),
+    );
+  });
+
+  it("selects the latest site-based slot after refreshing", async () => {
+    configureSiteMode();
+    renderWizard();
+    await openDatesStep();
+    await pickDate("1 Dec 2026");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    mocks.slots.mockResolvedValue({
+      ok: true,
+      data: [{ id: "slot-2", siteId: 9, startAt: "2026-12-01T11:00:00", duration: 30 }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+    await screen.findByText(/11:00/);
+    await clickContinue();
+    await waitFor(() =>
+      expect(mocks.hold).toHaveBeenCalledWith({
+        data: { slotId: "slot-2", siteId: 9 },
+      }),
+    );
+  });
+
+  it("keeps Continue disabled while sessions load and when refresh returns no sessions", async () => {
+    let resolveSessions!: (value: { ok: true; data: (typeof session)[] }) => void;
+    mocks.sessions.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSessions = resolve;
+      }),
+    );
+    renderWizard();
+    await openDatesStep();
+    await pickDate("5 Nov 2026");
+    expect(await screen.findByText("Loading the test center…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+    resolveSessions({ ok: true, data: [session] });
+    await screen.findByText("Dhaka Center");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    mocks.sessions.mockResolvedValue({ ok: true, data: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+    expect(
+      await screen.findByText("No sessions available. Choose another date."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(mocks.targetedHold).not.toHaveBeenCalled();
+  });
+
+  it("shows an actionable SVP failure and allows refreshing to recover", async () => {
+    mocks.sessions.mockResolvedValue({
+      ok: false,
+      needsSignIn: false,
+      message: "Sessions could not be loaded.",
+    });
+    renderWizard();
+    await openDatesStep();
+    await pickDate("5 Nov 2026");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sessions could not be loaded.");
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+    mocks.sessions.mockResolvedValue({ ok: true, data: [session] });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+    expect(await screen.findByText("Dhaka Center")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

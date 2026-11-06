@@ -63,7 +63,7 @@ import {
   type SvpDiagnostics,
 } from "@/lib/svp-booking.functions";
 import { lookupTakamolAvailability } from "@/lib/takamol-availability.functions";
-import { parseOccupationLanguages, parseSessionTableRows } from "@/lib/takamol-availability.ui";
+import { parseOccupationLanguages } from "@/lib/takamol-availability.ui";
 import {
   getSvpSessionStatus,
   listSvpAccounts,
@@ -753,55 +753,8 @@ export function SvpBookingWizard() {
     [slotsQuery.data],
   );
 
-  const availabilityCity = selectedDate?.city ?? city;
-  const availabilityDate = isTargeted
-    ? selectedDate
-      ? splitDateTime(selectedDate.startAt).date
-      : ""
-    : (prometricDate ?? "");
-  const takamolQuery = useQuery({
-    queryKey: ["svp-takamol-availability", effectiveCategoryId, availabilityCity, availabilityDate],
-    queryFn: () =>
-      lookupTakamolAvailability({
-        data: {
-          endpoint: "sessions",
-          categoryId: String(effectiveCategoryId),
-          city: availabilityCity,
-          examDate: availabilityDate,
-        },
-      }),
-    enabled:
-      checked &&
-      Boolean(effectiveCategoryId) &&
-      Boolean(availabilityCity) &&
-      /^\d{4}-\d{2}-\d{2}$/.test(availabilityDate),
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
-  const takamolRows = useMemo(
-    () =>
-      takamolQuery.data?.success
-        ? parseSessionTableRows(takamolQuery.data.data, availabilityCity)
-        : [],
-    [availabilityCity, takamolQuery.data],
-  );
-  // The provider is the source of truth for the language actually offered for these sessions.
-  const apiLanguages = useMemo(() => {
-    const unique = new Set<string>();
-    for (const row of takamolRows) {
-      if (row.language) unique.add(row.language);
-    }
-    return [...unique];
-  }, [takamolRows]);
-  const apiLanguageLabel = apiLanguages.join(", ");
   const activeLanguageLabel =
     languageChoices.find((entry) => entry.code === activeLanguageCode)?.label ?? activeLanguageCode;
-  const languageMismatch =
-    apiLanguages.length > 0 &&
-    Boolean(activeLanguageLabel) &&
-    !apiLanguages.some(
-      (entry) => entry.trim().toLowerCase() === activeLanguageLabel.trim().toLowerCase(),
-    );
 
   // If the site-based attempt fails after eligibility but targeted dates exist, use them.
   useEffect(() => {
@@ -1073,7 +1026,6 @@ export function SvpBookingWizard() {
   };
 
   const refreshAvailability = () => {
-    if (availabilityCity && availabilityDate) void takamolQuery.refetch();
     if (!isTargeted) void citiesQuery.refetch();
     if (isTargeted) {
       void datesQuery.refetch();
@@ -1538,47 +1490,27 @@ export function SvpBookingWizard() {
         return list.findIndex((other) => `${other.startAt}|${other.city ?? ""}` === key) === index;
       })
     : examSessions;
-  // Each Takamol availability row maps to a real SVP session token so a click selects it.
-  // Picking a date preselects its first session so the test center is visible immediately,
-  // and a Takamol row or the test-center picker can still override it.
+  // Show the first SVP session as soon as the date loads.
   useEffect(() => {
-    if (!isTargeted) return;
-    if (selectedSession || visibleExamSessions.length === 0) return;
-    setSelectedSession(visibleExamSessions[0]!);
-  }, [isTargeted, selectedSession, visibleExamSessions]);
+    if (!isTargeted || stage !== "dates" || !sessionsQuery.data?.ok) return;
+    // Keep a valid selection after refresh; never book a session that disappeared.
+    const current = visibleExamSessions.find((entry) => entry.id === selectedSession?.id);
+    const next = current ?? visibleExamSessions[0] ?? null;
+    if (next !== selectedSession) setSelectedSession(next);
+  }, [isTargeted, selectedSession, sessionsQuery.data, stage, visibleExamSessions]);
 
   // Site-based dates also resolve their first test center as soon as the date is chosen.
   useEffect(() => {
-    if (isTargeted || selectedSlot || prometricSlots.length === 0) return;
-    chooseSlot(prometricSlots[0]!);
-  }, [chooseSlot, isTargeted, prometricSlots, selectedSlot]);
-
-  const takamolChoices = (() => {
-    return takamolRows.map((row, index) => {
-      if (!isTargeted) {
-        if (prometricSlots.length === 0) return null;
-        const slot = prometricSlots[index % prometricSlots.length]!;
-        return {
-          selected: selectedSlot?.id === slot.id,
-          disabled: false,
-          onSelect: () => chooseSlot(slot),
-        };
-      }
-      const session = visibleExamSessions[index % Math.max(visibleExamSessions.length, 1)];
-      if (!session) return null;
-      return {
-        selected: selectedSession?.id === session.id && !selectedSlot,
-        disabled: false,
-        onSelect: () => {
-          setSelectedSession(session);
-          setSelectedSlot(null);
-          setHoldId(null);
-          setPrometricHoldExpiresAt(null);
-          setTargetedHoldExpiresAt(null);
-        },
-      };
-    });
-  })();
+    if (isTargeted || stage !== "dates" || !slotsQuery.data?.ok) return;
+    const current = prometricSlots.find((slot) => slot.id === selectedSlot?.id);
+    const next = current ?? prometricSlots[0] ?? null;
+    if (next === selectedSlot) return;
+    if (next) chooseSlot(next);
+    else {
+      setSelectedSlot(null);
+      setSelectedSession(null);
+    }
+  }, [chooseSlot, isTargeted, prometricSlots, selectedSlot, slotsQuery.data, stage]);
 
   const sessionViews: SvpExamSessionView[] = isTargeted
     ? visibleExamSessions.map((entry) => ({
@@ -2055,11 +1987,6 @@ export function SvpBookingWizard() {
                     />
                   )}
                 </Field>
-                {occupation && !takamolLanguageCode && languageChoices.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Takamol has no code for this occupation; the SVP language codes are used.
-                  </p>
-                )}
                 {occupation && languageChoices.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     Enter the SVP prometric language code for this occupation so the booking can be
@@ -2375,34 +2302,24 @@ export function SvpBookingWizard() {
                   <CalendarDays className="h-5 w-5" />
                 </span>
                 <h2 className="text-xl font-bold">Step 2 · Choose the exam session</h2>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="ml-auto shrink-0"
+                  aria-label="Refresh sessions"
+                  title="Refresh"
+                  disabled={datesLoading || sessionsLoading}
+                  onClick={refreshAvailability}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {occupation?.name} · {city}
                 {activeDateValue ? ` · ${formatDateOnly(activeDateValue)}` : ""}
               </p>
             </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
-                Dates and sessions come live from SVP; refresh if availability changes.
-              </p>
-              <Button type="button" size="sm" variant="ghost" onClick={refreshAvailability}>
-                <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh availability
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
-                Select an available date first; the test centers and sessions for that date load
-                automatically.
-              </p>
-            </div>
-
-            {eligibility && eligibility.every((entry) => entry.passed) && (
-              <p className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 p-2 text-xs">
-                <CheckCircle2 className="h-4 w-4 text-success" /> All SVP checks passed.
-              </p>
-            )}
 
             {datesLoading && (
               <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
@@ -2441,21 +2358,9 @@ export function SvpBookingWizard() {
               />
             )}
 
-            {takamolQuery.data && !takamolQuery.data.success && takamolQuery.data.message && (
-              <div
-                role="status"
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-2 text-xs text-amber-950"
-              >
-                <span>Takamol live availability: {takamolQuery.data.message}</span>
-                <Button type="button" size="sm" variant="outline" onClick={refreshAvailability}>
-                  <RefreshCw className="mr-1 h-3.5 w-3.5" /> Retry
-                </Button>
-              </div>
-            )}
-
             {activeDateValue && (
               <div className="space-y-2">
-                {takamolRows.length === 0 && sessionsLoading && (
+                {sessionsLoading && !activeSessionView && (
                   <p
                     className="flex items-center gap-2 text-sm text-muted-foreground"
                     role="status"
@@ -2463,12 +2368,17 @@ export function SvpBookingWizard() {
                     <LoaderCircle className="h-4 w-4 animate-spin" /> Loading the test center…
                   </p>
                 )}
-                {takamolRows.length === 0 && sessionsError && (
+                {sessionsError && (
                   <p role="alert" className="text-sm text-destructive">
                     {sessionsError}
                   </p>
                 )}
-                {takamolRows.length === 0 && activeSessionView && (
+                {sessionsLoaded && !sessionsLoading && !activeSessionView && (
+                  <p className="text-sm text-muted-foreground" role="status">
+                    No sessions available. Choose another date.
+                  </p>
+                )}
+                {activeSessionView && (
                   <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -2483,9 +2393,9 @@ export function SvpBookingWizard() {
                         {activeSessionView.center ?? activeSessionView.city ?? "SVP test center"}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatDateOnly(availabilityDate || activeDateValue)}
+                        {formatDateOnly(activeDateValue)}
                         {sessionTimeLabel ? ` · ${sessionTimeLabel}` : ""}
-                        {` · ${activeSessionView.city ?? availabilityCity}`}
+                        {` · ${activeSessionView.city ?? city}`}
                         {` · ${activeLanguageLabel}`}
                       </p>
                     </div>
@@ -2512,95 +2422,6 @@ export function SvpBookingWizard() {
                   </div>
                 )}
 
-                {takamolRows.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium">Live availability · Takamol API</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDateOnly(availabilityDate)} · {availabilityCity} ·{" "}
-                          {apiLanguageLabel || activeLanguageLabel}
-                        </p>
-                      </div>
-                      <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-                        Click a row to select
-                      </span>
-                    </div>
-                    <div className="overflow-x-auto rounded-xl border">
-                      <table className="w-full min-w-[34rem] text-left text-sm">
-                        <thead className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
-                          <tr>
-                            <th className="px-3 py-2">Test center</th>
-                            <th className="px-3 py-2">Time</th>
-                            <th className="px-3 py-2">Seats</th>
-                            <th className="px-3 py-2">Slot</th>
-                            <th className="px-3 py-2">Language</th>
-                            <th className="px-3 py-2 text-right">Selection</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {takamolRows.map((row, index) => {
-                            const choice = takamolChoices[index] ?? null;
-                            const active = choice ? choice.selected : false;
-                            return (
-                              <tr
-                                key={row.id}
-                                className={
-                                  active ? "bg-primary-soft" : "cursor-pointer hover:bg-muted/40"
-                                }
-                                onClick={() => choice?.onSelect()}
-                              >
-                                <td className="px-3 py-2">{row.centerName}</td>
-                                <td className="px-3 py-2 font-medium">{row.examTime}</td>
-                                <td className="px-3 py-2">{row.seats}</td>
-                                <td className="px-3 py-2">{row.examSlot}</td>
-                                <td className="px-3 py-2">{row.language ?? activeLanguageLabel}</td>
-                                <td className="px-3 py-2 text-right">
-                                  {choice ? (
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant={active ? "default" : "outline"}
-                                      disabled={choice.disabled}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        choice.onSelect();
-                                      }}
-                                    >
-                                      {active ? "Selected" : "Select"}
-                                    </Button>
-                                  ) : (
-                                    <span className="text-[11px] text-muted-foreground">—</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Availability comes from the Takamol API; the row you click selects the real
-                      SVP exam session that will be booked.
-                    </p>
-                    {languageMismatch && (
-                      <p
-                        role="status"
-                        className="rounded-lg border border-amber-300/60 bg-amber-50 p-2 text-xs text-amber-950"
-                      >
-                        Takamol lists {apiLanguageLabel} for this date, but the selected exam
-                        language is {activeLanguageLabel}. Check availability with a language the
-                        API reports.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {isTargeted && isLoadBalancer && !selectedSession && examSessions.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Select a Takamol availability row to choose the SVP session for this date.
-                  </p>
-                )}
                 {!isTargeted && holdId && (
                   <p className="text-xs text-muted-foreground">
                     SVP has held this slot for you. Continue to confirm the booking.
@@ -2618,11 +2439,11 @@ export function SvpBookingWizard() {
                 onClick={continueFromDates}
                 disabled={
                   continueBusy ||
+                  sessionsLoading ||
+                  Boolean(sessionsError) ||
+                  !activeSessionView ||
                   (isTargeted
-                    ? !selectedDate ||
-                      sessionsLoading ||
-                      Boolean(sessionsError) ||
-                      (!isLoadBalancer && !selectedSession)
+                    ? !selectedDate || (!isLoadBalancer && !selectedSession)
                     : !city.trim() || !prometricDate || !selectedSession)
                 }
               >
