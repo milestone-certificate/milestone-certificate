@@ -6,7 +6,7 @@ import { homeForRoles } from "@/lib/roles";
 import { supabase } from "@/integrations/supabase/client";
 import { Eye, EyeOff, KeyRound, Lock, LogIn, Mail, ShieldCheck, Smartphone } from "lucide-react";
 import { checkDeviceSession, claimDeviceSession } from "@/lib/device-session";
-import brandLogo from "@/assets/brand-logo.png.asset.json";
+import brandLogo from "@/assets/brand-logo.jpg";
 import space1 from "@/assets/space-1.webp";
 import space2 from "@/assets/space-2.webp";
 import space3 from "@/assets/space-3.webp";
@@ -225,7 +225,7 @@ function AuthPage() {
               aria-hidden="true"
             />
             <img
-              src={brandLogo.url}
+              src={brandLogo}
               alt="Milestone Certificate Institute"
               className="h-20 w-20 rounded-full border border-white/20 object-cover shadow-[0_0_50px_-10px_rgba(34,211,238,0.7)]"
             />

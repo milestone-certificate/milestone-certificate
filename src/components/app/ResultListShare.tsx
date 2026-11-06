@@ -8,7 +8,7 @@ import { occQ, ttcQ, lookup, bn } from "@/lib/data";
 import { SvpPill } from "@/components/app/WorkBits";
 import { ResultCheckButton } from "@/components/app/ResultCheckButton";
 import { Button } from "@/components/ui/button";
-import brandLogo from "@/assets/brand-logo.png.asset.json";
+import brandLogo from "@/assets/brand-logo.jpg";
 import cardBg from "@/assets/bg-cosmic-1.webp";
 
 const dhakaDay = (iso: string) =>
@@ -131,7 +131,7 @@ async function makeCard(d: Info): Promise<Blob> {
   x.lineWidth = 1.5;
   x.stroke();
 
-  const logo = await loadImg(brandLogo.url);
+  const logo = await loadImg(brandLogo);
   if (logo) {
     x.save();
     x.shadowColor = accent;

@@ -7,7 +7,7 @@ import { LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { TechBackground } from "./TechBackground";
-import brandLogo from "@/assets/brand-logo.png.asset.json";
+import brandLogo from "@/assets/brand-logo.jpg";
 import { navigationForRoles } from "@/lib/navigation";
 import { cancelStaleSvpBookings } from "@/lib/svp-pending-cancel";
 import { useEffect } from "react";
@@ -51,7 +51,7 @@ export function AppShell({ children, roles = [] }: { children: ReactNode; roles?
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-hidden border-r bg-sidebar/85 p-4 backdrop-blur-md md:flex">
         <div className="mb-6 flex items-center gap-2 px-2">
           <img
-            src={brandLogo.url}
+            src={brandLogo}
             alt="Milestone Certificate Institute"
             className="h-10 w-10 rounded-full object-cover ring-2 ring-primary/50"
           />
@@ -90,7 +90,7 @@ export function AppShell({ children, roles = [] }: { children: ReactNode; roles?
       <main className="min-w-0 flex-1 px-4 pb-24 pt-5 md:px-8 md:pb-10 md:pt-8">
         <div className="mb-4 flex items-center gap-2">
           <img
-            src={brandLogo.url}
+            src={brandLogo}
             alt=""
             className="h-8 w-8 rounded-full object-cover ring-2 ring-primary/50 md:hidden"
           />

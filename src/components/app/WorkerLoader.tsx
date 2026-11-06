@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
-import brandLogo from "@/assets/brand-logo.png.asset.json";
+import brandLogo from "@/assets/brand-logo.jpg";
 
 type Size = "sm" | "md" | "lg";
 const dims: Record<Size, string> = { sm: "h-8 w-8", md: "h-20 w-20", lg: "h-32 w-32" };
@@ -15,7 +15,7 @@ export function WorkerLoader({ size = "md", label }: { size?: Size; label?: stri
         <span className="bh-ring-rev absolute -inset-[12%] rounded-full border-2 border-transparent border-b-accent border-r-primary/60" />
         <span className="absolute -inset-1 rounded-full bg-background shadow-[0_0_30px_8px_color-mix(in_oklab,var(--primary)_55%,transparent)]" />
         <img
-          src={brandLogo.url}
+          src={brandLogo}
           alt=""
           className="logo-wave relative h-full w-full rounded-full object-cover"
         />
