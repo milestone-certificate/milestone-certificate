@@ -1,8 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
 import {
-  AlertCircle,
   CalendarDays,
   CheckCircle2,
   Clock3,
@@ -146,6 +144,10 @@ export function SvpReschedulePanel({
     refetchOnWindowFocus: false,
   });
   const detail = detailQuery.data?.ok ? detailQuery.data.data : null;
+  const detailNeedsSignIn = Boolean(
+    detailQuery.data && !detailQuery.data.ok && detailQuery.data.needsSignIn,
+  );
+  const currentLanguageCode = detail?.languageCode?.trim() ?? "";
   const languageOptions = useMemo(() => {
     const all = detail?.languages ?? [];
     const filtered = all.filter((entry) => entry.nonTargeted === !isTargeted);
@@ -158,13 +160,23 @@ export function SvpReschedulePanel({
         byLabel.set(key, entry);
       }
     }
-    return [...byLabel.values()];
-  }, [detail, isTargeted]);
+    const options = [...byLabel.values()];
+    // Keep the reservation's code selectable when the catalogue omits it.
+    if (currentLanguageCode && !options.some((entry) => entry.code === currentLanguageCode)) {
+      options.push({
+        code: currentLanguageCode,
+        label: currentLanguageCode,
+        questionCount: null,
+        nonTargeted: !isTargeted,
+      });
+    }
+    return options;
+  }, [currentLanguageCode, detail, isTargeted]);
   const activeLanguage =
     languageCode && languageOptions.some((entry) => entry.code === languageCode)
       ? languageCode
-      : detail?.languageCode && languageOptions.some((entry) => entry.code === detail.languageCode)
-        ? detail.languageCode
+      : currentLanguageCode
+        ? currentLanguageCode
         : (languageOptions[0]?.code ?? "en");
   const effectiveCountryId = detail?.countryId ?? countryId ?? null;
   const effectiveCategoryId = detail?.categoryId ?? categoryId ?? null;
@@ -178,9 +190,6 @@ export function SvpReschedulePanel({
     [activeLanguage, languageOptions],
   );
   const monthOptions = useMemo(() => buildMonthOptions(), []);
-  const selectedMonthLabel =
-    monthOptions.find((entry) => entry.value === selectedMonth)?.label ?? selectedMonth;
-
   const datesQuery = useQuery({
     queryKey: ["svp-reschedule-dates", reservationId, effectiveCategoryId, effectiveCountryId],
     queryFn: () =>
@@ -220,19 +229,9 @@ export function SvpReschedulePanel({
     () => (citiesQuery.data?.success ? parseCities(citiesQuery.data.data) : []),
     [citiesQuery.data],
   );
-  const cityListError =
-    citiesQuery.data && !citiesQuery.data.success
-      ? citiesQuery.data.message
-      : citiesQuery.isError
-        ? "The Takamol city lookup failed."
-        : effectiveCategoryId == null
-          ? "A category is required to load Takamol cities."
-          : null;
+  const cityListFailed =
+    citiesQuery.isError || Boolean(citiesQuery.data && !citiesQuery.data.success);
   const cityListEmpty = Boolean(citiesQuery.data?.success && takamolCities.length === 0);
-  const cityFallbackOnly = Boolean(
-    detail?.city && !citiesQuery.isFetching && (cityListError || cityListEmpty),
-  );
-
   const centersQuery = useQuery({
     queryKey: ["takamol-reschedule-centers", city],
     queryFn: () => lookupTakamolAvailability({ data: { endpoint: "centers", city } }),
@@ -240,8 +239,6 @@ export function SvpReschedulePanel({
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const centersErrorMessage =
-    centersQuery.data && !centersQuery.data.success ? centersQuery.data.message : null;
   const takamolCenters = useMemo(
     () => (centersQuery.data?.success ? parseTestCenters(centersQuery.data.data) : []),
     [centersQuery.data],
@@ -407,15 +404,37 @@ export function SvpReschedulePanel({
     refetchOnWindowFocus: false,
   });
   const sessions = sessionsQuery.data?.ok ? sessionsQuery.data.data : [];
+  const currentSession = selectedSession
+    ? (sessions.find((entry) => entry.id === selectedSession.id && entry.availableSeats !== 0) ??
+      null)
+    : null;
+  const currentSlot = selectedSlot
+    ? (visiblePrometricSlots.find(
+        (slot) => slot.id === selectedSlot.id && slot.siteId === selectedSlot.siteId,
+      ) ?? null)
+    : null;
+  const availabilityQuery = isTargeted ? sessionsQuery : slotsQuery;
+  const canConfirmReschedule =
+    Boolean(detail?.canBeRescheduled) &&
+    !detailQuery.isFetching &&
+    !detailQuery.isError &&
+    (rescheduleTimes === null || rescheduleTimes > 0) &&
+    !availabilityQuery.isFetching &&
+    !availabilityQuery.isError &&
+    Boolean(availabilityQuery.data?.ok) &&
+    (isTargeted ? Boolean(currentSession) : Boolean(currentSlot && prometricExamId));
 
   const rescheduleMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedSession) throw new Error("Choose a new session first.");
+      if (!canConfirmReschedule) {
+        throw new Error("Availability changed. Select an available session again.");
+      }
       if (isTargeted) {
+        if (!currentSession) throw new Error("Choose a new session first.");
         const response = await rescheduleSvpBooking({
           data: {
             reservationId,
-            examSessionId: selectedSession.id,
+            examSessionId: currentSession.id,
             languageCode: activeLanguage,
             // Load-balancer dates are day tokens: hold every token SVP returned for
             // the date so SVP can assign the real session, exactly like booking.
@@ -435,19 +454,19 @@ export function SvpReschedulePanel({
         return response.data;
       }
 
-      if (!selectedSlot?.siteId || !prometricExamId) {
+      if (!currentSlot?.siteId || !prometricExamId) {
         throw new Error("Choose a new slot first.");
       }
       const response = await rescheduleSvpSiteBooking({
         data: {
           reservationId,
           examId: prometricExamId,
-          slotId: selectedSlot.id,
-          siteId: selectedSlot.siteId,
-          siteCity: selectedSession.city,
+          slotId: currentSlot.id,
+          siteId: currentSlot.siteId,
+          siteCity: prometricSites.find((site) => site.siteId === currentSlot.siteId)?.city ?? city,
           languageCode: activeLanguage,
-          duration: selectedSlot.duration,
-          startAt: selectedSlot.startAt,
+          duration: currentSlot.duration,
+          startAt: currentSlot.startAt,
           categoryId: effectiveCategoryId as number,
           countryId: effectiveCountryId,
         },
@@ -477,8 +496,6 @@ export function SvpReschedulePanel({
       void queryClient.invalidateQueries({ queryKey: ["svp-reservations"] });
       void queryClient.invalidateQueries({ queryKey: ["svp-reservation-detail", reservationId] });
     },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "The reschedule failed."),
   });
 
   const resetSelection = () => {
@@ -563,12 +580,22 @@ export function SvpReschedulePanel({
     );
   }
 
-  if (detailQuery.data && !detailQuery.data.ok) {
+  if (detailQuery.isError || (detailQuery.data && !detailQuery.data.ok)) {
     return (
-      <section className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-        <p role="alert" className="text-sm text-destructive">
-          {detailQuery.data.message}
-        </p>
+      <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+        <h2 className="text-lg font-bold">Reschedule appointment</h2>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={detailQuery.isFetching}
+          onClick={() =>
+            detailNeedsSignIn && onReconnect ? onReconnect() : void detailQuery.refetch()
+          }
+        >
+          <RotateCcw className="mr-1 h-4 w-4" />
+          {detailNeedsSignIn && onReconnect ? "Reconnect to SVP" : "Retry reservation"}
+        </Button>
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           <X className="mr-1 h-4 w-4" /> Close
         </Button>
@@ -584,14 +611,9 @@ export function SvpReschedulePanel({
     return (
       <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
         <h2 className="text-lg font-bold">Reschedule appointment</h2>
-        <p
-          role="alert"
-          className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950"
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          SVP reports no reschedules are left for this account. Contact SVP support if the
-          appointment has to change.
-        </p>
+        <Button type="button" variant="outline" disabled>
+          Reschedule unavailable
+        </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
           Close
         </Button>
@@ -636,11 +658,9 @@ export function SvpReschedulePanel({
     return (
       <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
         <h2 className="text-lg font-bold">Reschedule appointment</h2>
-        <p className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          SVP does not allow rescheduling this reservation. Use the official portal if the
-          appointment needs to change.
-        </p>
+        <Button type="button" variant="outline" disabled>
+          Reschedule unavailable
+        </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
           Close
         </Button>
@@ -673,17 +693,11 @@ export function SvpReschedulePanel({
       : ""
     : (prometricDate ?? "");
   const datesLoading = isTargeted ? datesQuery.isFetching : sitesQuery.isFetching;
-  const datesError = isTargeted
-    ? datesQuery.data && !datesQuery.data.ok
-      ? datesQuery.data.message
-      : datesQuery.isError
-        ? "Reschedule dates could not be loaded. Try again."
-        : null
-    : sitesQuery.data && !sitesQuery.data.ok
-      ? sitesQuery.data.message
-      : sitesQuery.isError
-        ? "Test center dates could not be loaded. Try again."
-        : null;
+  const dateQuery = isTargeted ? datesQuery : sitesQuery;
+  const datesFailed = dateQuery.isError || Boolean(dateQuery.data && !dateQuery.data.ok);
+  const datesNeedSignIn = Boolean(
+    dateQuery.data && !dateQuery.data.ok && dateQuery.data.needsSignIn,
+  );
   const datesLoaded = isTargeted ? Boolean(datesQuery.data?.ok) : Boolean(sitesQuery.data?.ok);
   const sessionViews = isTargeted
     ? sessions.map((entry) => ({
@@ -712,25 +726,14 @@ export function SvpReschedulePanel({
         };
       });
   const sessionsLoading = isTargeted ? sessionsQuery.isFetching : slotsQuery.isFetching;
-  const sessionsError = isTargeted
-    ? sessionsQuery.data && !sessionsQuery.data.ok
-      ? sessionsQuery.data.message
-      : sessionsQuery.isError
-        ? "Sessions could not be loaded. Try again."
-        : null
-    : slotsQuery.data && !slotsQuery.data.ok
-      ? slotsQuery.data.message
-      : slotsQuery.isError
-        ? "Available test-center slots could not be loaded. Try again."
-        : null;
+  const sessionsFailed =
+    availabilityQuery.isError || Boolean(availabilityQuery.data && !availabilityQuery.data.ok);
   const sessionsLoaded = isTargeted
     ? Boolean(sessionsQuery.data?.ok)
     : Boolean(slotsQuery.data?.ok);
-  const siteMappingNeedsSignIn = Boolean(
-    (sitesQuery.data && !sitesQuery.data.ok && sitesQuery.data.needsSignIn) ||
-    (slotsQuery.data && !slotsQuery.data.ok && slotsQuery.data.needsSignIn),
+  const sessionsNeedSignIn = Boolean(
+    availabilityQuery.data && !availabilityQuery.data.ok && availabilityQuery.data.needsSignIn,
   );
-
   return (
     <section className="space-y-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -739,7 +742,6 @@ export function SvpReschedulePanel({
           <p className="mt-1 text-sm text-muted-foreground">
             {detail.occupationName ?? "Occupation"} · #{detail.id}
             {detail.city || detail.centerName ? ` · ${detail.centerName ?? detail.city}` : ""}
-            {` · ${isTargeted ? "targeted" : "site-based"} flow`}
           </p>
           <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" /> Current session:{" "}
@@ -763,9 +765,7 @@ export function SvpReschedulePanel({
             <option value="">Select a city</option>
             {cityOptions.map((entry) => (
               <option key={entry} value={entry}>
-                {cityFallbackOnly && entry === detail.city
-                  ? `${entry} (current booking fallback)`
-                  : entry}
+                {entry}
               </option>
             ))}
             {!isTargeted && (
@@ -819,7 +819,7 @@ export function SvpReschedulePanel({
             <Input
               value={manualCityName}
               onChange={(event) => setManualCityName(event.target.value)}
-              placeholder="Enter a city name recognized by Takamol"
+              placeholder="Enter a city name"
               autoComplete="address-level2"
               maxLength={100}
             />
@@ -832,115 +832,58 @@ export function SvpReschedulePanel({
           >
             Check this city
           </Button>
-          <p className="text-xs text-muted-foreground sm:col-span-2">
-            The city name will be checked with Takamol for cities, centers, dates, and sessions. A
-            slot can be selected only when its availability row matches one unique SVP slot ID.
-          </p>
         </div>
       )}
 
-      {!isTargeted && detail && citiesQuery.isFetching && (
+      {!isTargeted && citiesQuery.isFetching && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading cities from Takamol…
+          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading cities…
         </p>
       )}
-      {!isTargeted && detail && !citiesQuery.isFetching && cityListError && (
-        <div role="alert" className="space-y-2 rounded-lg border border-destructive/30 p-3">
-          <p className="text-sm text-destructive">
-            Could not load cities from Takamol: {cityListError}
-          </p>
-          {cityFallbackOnly && (
-            <p className="text-sm text-muted-foreground">
-              The current booking city, {detail.city}, is available as a fallback option. Select it
-              manually if you want to check it; it will not be selected automatically. To try
-              another city, choose “Enter another city manually”; Takamol must recognize that city
-              and return availability.
-            </p>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void citiesQuery.refetch()}
-          >
-            Retry city list
-          </Button>
-        </div>
-      )}
-      {!isTargeted && detail && !citiesQuery.isFetching && cityListEmpty && (
-        <div
-          role="status"
-          className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground"
+      {!isTargeted && !citiesQuery.isFetching && (cityListFailed || cityListEmpty) && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void citiesQuery.refetch()}
         >
-          Takamol returned no cities for this category. The current booking city
-          {detail.city ? ` (${detail.city})` : ""} is available as a fallback option. Select it
-          manually if you want to check it. To try another city, choose “Enter another city
-          manually”; Takamol must recognize the city and return availability.
-          <div className="mt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void citiesQuery.refetch()}
-            >
-              Retry city list
-            </Button>
-          </div>
-        </div>
+          Retry city list
+        </Button>
       )}
-
-      {!isTargeted && city && centersQuery.isFetching && (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading test centers from Takamol…
-        </p>
-      )}
-      {!isTargeted &&
-        city &&
-        ((centersQuery.data && !centersQuery.data.success) || centersQuery.isError) && (
-          <p role="status" className="text-xs text-amber-800">
-            Takamol centers could not be loaded: {centersErrorMessage ?? "request failed"}.
-            Availability rows will only be selectable when their center can be matched exactly to an
-            SVP site.
-          </p>
-        )}
-      {!isTargeted && city && centersQuery.data?.success && takamolCenters.length === 0 && (
-        <p role="status" className="text-xs text-muted-foreground">
-          Takamol returned no center catalogue entries for this city; only availability rows with a
-          center identity that matches an SVP site can be selected.
-        </p>
-      )}
-
       {isTargeted && effectiveCategoryId == null && (
-        <p
-          role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void detailQuery.refetch()}
         >
-          This reservation has no SVP category, so reschedule dates cannot be loaded. Use the
-          official SVP portal for this booking.
-        </p>
-      )}
-
-      {!isTargeted && !city && (
-        <p className="text-sm text-muted-foreground">Select a city to load the reschedule dates.</p>
+          Retry reservation
+        </Button>
       )}
 
       {datesLoading &&
-        !datesError &&
+        !datesFailed &&
         (isTargeted ? effectiveCategoryId != null : Boolean(city)) && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
             <LoaderCircle className="h-4 w-4 animate-spin" /> Loading reschedule dates…
           </p>
         )}
-      {datesError && (
-        <p role="alert" className="text-sm text-destructive">
-          {datesError}
-        </p>
+      {datesFailed && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={datesLoading}
+          onClick={() =>
+            datesNeedSignIn && onReconnect ? onReconnect() : void dateQuery.refetch()
+          }
+        >
+          {datesNeedSignIn && onReconnect ? "Reconnect to SVP" : "Retry dates"}
+        </Button>
       )}
       {!datesLoading && datesLoaded && shownDateOptions.length === 0 && (
         <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-          {isTargeted
-            ? "No reschedule dates are available. Choose another city or use the official portal."
-            : `No SVP test-center dates are available in ${selectedMonthLabel} for this city.`}
+          No dates available.
         </p>
       )}
 
@@ -971,38 +914,22 @@ export function SvpReschedulePanel({
           <p className="text-sm font-medium">
             Available test centers · {formatDate(prometricDate)}
           </p>
-          <p className="text-xs text-muted-foreground">
-            Takamol centers appear here after you choose a date. Select a center to filter its
-            availability; the real SVP slot is still the one submitted.
-          </p>
           {takamolSessionsQuery.isFetching && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading available centers…
+              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading centers…
             </p>
           )}
           {!takamolSessionsQuery.isFetching &&
-            takamolSessionsQuery.data &&
-            !takamolSessionsQuery.data.success && (
-              <div role="status" className="space-y-2">
-                <p className="text-xs text-amber-800">
-                  Takamol availability could not be loaded: {takamolSessionsQuery.data.message}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void takamolSessionsQuery.refetch()}
-                >
-                  Retry availability
-                </Button>
-              </div>
-            )}
-          {!takamolSessionsQuery.isFetching &&
-            takamolSessionsQuery.data?.success &&
-            availableTakamolCenters.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Takamol returned no available test centers for this date.
-              </p>
+            (takamolSessionsQuery.isError ||
+              (takamolSessionsQuery.data && !takamolSessionsQuery.data.success)) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void takamolSessionsQuery.refetch()}
+              >
+                Retry centers
+              </Button>
             )}
           {availableTakamolCenters.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -1051,21 +978,22 @@ export function SvpReschedulePanel({
               <LoaderCircle className="h-4 w-4 animate-spin" /> Loading sessions…
             </p>
           )}
-          {sessionsError && (
-            <div role="alert" className="space-y-2">
-              <p className="text-sm text-destructive">{sessionsError}</p>
-              {siteMappingNeedsSignIn && onReconnect && (
-                <Button type="button" variant="outline" size="sm" onClick={onReconnect}>
-                  Reconnect to SVP
-                </Button>
-              )}
-            </div>
+          {sessionsFailed && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={sessionsLoading}
+              onClick={() =>
+                sessionsNeedSignIn && onReconnect ? onReconnect() : void availabilityQuery.refetch()
+              }
+            >
+              {sessionsNeedSignIn && onReconnect ? "Reconnect to SVP" : "Retry sessions"}
+            </Button>
           )}
           {!sessionsLoading && sessionsLoaded && sessionViews.length === 0 && (
             <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-              {isTargeted
-                ? "No sessions with free seats on this date."
-                : "No slots with free seats on this date."}
+              No sessions available.
             </p>
           )}
           <div className="grid gap-2 md:grid-cols-2">
@@ -1102,7 +1030,9 @@ export function SvpReschedulePanel({
         <Button
           type="button"
           onClick={() => rescheduleMutation.mutate()}
-          disabled={!selectedSession || rescheduleMutation.isPending}
+          disabled={
+            !canConfirmReschedule || rescheduleMutation.isPending || rescheduleMutation.isError
+          }
         >
           {rescheduleMutation.isPending ? (
             <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
@@ -1111,6 +1041,19 @@ export function SvpReschedulePanel({
           )}
           Confirm reschedule
         </Button>
+        {rescheduleMutation.isError && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              rescheduleMutation.reset();
+              void detailQuery.refetch();
+              void availabilityQuery.refetch();
+            }}
+          >
+            Review booking
+          </Button>
+        )}
       </div>
     </section>
   );

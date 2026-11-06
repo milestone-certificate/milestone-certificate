@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SvpReschedulePanel } from "@/components/app/SvpReschedulePanel";
 
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   sites: vi.fn(),
   slots: vi.fn(),
   siteReschedule: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@/lib/svp-booking.functions", () => ({
@@ -28,7 +29,7 @@ vi.mock("@/lib/takamol-availability.functions", () => ({
   lookupTakamolAvailability: mocks.takamol,
 }));
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: mocks.toastError } }));
 
 const detail = {
   id: "987",
@@ -141,6 +142,7 @@ beforeEach(() => {
 });
 
 function renderPanel(props?: {
+  client?: QueryClient;
   canBeRescheduled?: boolean;
   isTargeted?: boolean;
   loadBalancer?: boolean;
@@ -153,7 +155,8 @@ function renderPanel(props?: {
   if (props?.canBeRescheduled === false) {
     mocks.detail.mockResolvedValue({ ok: true, data: { ...detail, canBeRescheduled: false } });
   }
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client =
+    props?.client ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <SvpReschedulePanel
@@ -251,9 +254,7 @@ describe("SVP reschedule panel", () => {
   it("blocks rescheduling when SVP marks the reservation as not reschedulable", async () => {
     renderPanel({ canBeRescheduled: false });
 
-    expect(
-      await screen.findByText(/SVP does not allow rescheduling this reservation/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Reschedule unavailable" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Confirm reschedule" })).not.toBeInTheDocument();
   });
 
@@ -285,9 +286,7 @@ describe("SVP reschedule panel", () => {
   it("stops before the form when SVP reports no reschedules are left", async () => {
     renderPanel({ rescheduleTimes: 0 });
 
-    expect(
-      await screen.findByText(/no reschedules are left for this account/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Reschedule unavailable" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Confirm reschedule" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("New city *")).not.toBeInTheDocument();
   });
@@ -373,7 +372,7 @@ describe("SVP site-based reschedule", () => {
     expect(screen.queryByText(/no row could be matched uniquely/i)).not.toBeInTheDocument();
   });
 
-  it("surfaces a failed city-list request instead of silently showing only the current city", async () => {
+  it("keeps city retry and selection controls without exposing provider errors", async () => {
     mocks.takamol.mockImplementation(({ data }: { data: { endpoint: string; city?: string } }) =>
       Promise.resolve(
         data.endpoint === "cities"
@@ -383,12 +382,14 @@ describe("SVP site-based reschedule", () => {
     );
     renderPanel({ isTargeted: false });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Takamol city endpoint unavailable");
-    expect((await screen.findByLabelText("New city *")) as HTMLSelectElement).toHaveValue("");
     expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
     expect(
-      await screen.findByRole("option", { name: "Dhaka (current booking fallback)" }),
-    ).toBeInTheDocument();
+      screen.queryByText("Takamol city endpoint unavailable", { exact: false }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect((await screen.findByLabelText("New city *")) as HTMLSelectElement).toHaveValue("");
+    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
   });
 
   it("does not offer SVP reconnect for a Takamol authorization failure", async () => {
@@ -404,10 +405,11 @@ describe("SVP site-based reschedule", () => {
 
     const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
     await waitFor(() => expect(citySelect).toHaveValue(""));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Takamol lookup is not authorized");
+    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
     expect(
-      await screen.findByRole("option", { name: "Dhaka (current booking fallback)" }),
-    ).toBeInTheDocument();
+      screen.queryByText("Takamol lookup is not authorized", { exact: false }),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reconnect to SVP" })).not.toBeInTheDocument();
     expect(onReconnect).not.toHaveBeenCalled();
   });
@@ -424,10 +426,8 @@ describe("SVP site-based reschedule", () => {
 
     const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
     await waitFor(() => expect(citySelect).toHaveValue(""));
-    expect(screen.getByText(/Takamol returned no cities for this category/)).toBeInTheDocument();
-    expect(
-      await screen.findByRole("option", { name: "Dhaka (current booking fallback)" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/Takamol returned no cities/)).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
   });
 
@@ -442,7 +442,8 @@ describe("SVP site-based reschedule", () => {
     renderPanel({ isTargeted: false });
 
     const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
-    expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 404");
+    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
+    expect(screen.queryByText(/HTTP 404/)).not.toBeInTheDocument();
     fireEvent.change(citySelect, { target: { value: "__manual_city__" } });
     fireEvent.change(await screen.findByLabelText("Manual city name"), {
       target: { value: "  Chattogram  " },
@@ -509,7 +510,10 @@ describe("SVP site-based reschedule", () => {
   it("holds a slot and reschedules with the prometric exam id and site", async () => {
     renderPanel({ isTargeted: false });
 
-    expect(await screen.findByText(/site-based flow/)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Reschedule appointment" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/site-based flow/)).not.toBeInTheDocument();
     const citySelect = await screen.findByLabelText("New city *");
     await waitFor(() => expect((citySelect as HTMLSelectElement).disabled).toBe(false));
     fireEvent.change(citySelect, {
@@ -636,5 +640,288 @@ describe("SVP site-based reschedule", () => {
         }),
       }),
     );
+  });
+});
+
+describe("reschedule error recovery and language preservation", () => {
+  it("keeps a recoverable reservation panel without showing network errors", async () => {
+    mocks.detail.mockRejectedValueOnce(new Error("Network unavailable"));
+    renderPanel();
+    expect(await screen.findByRole("button", { name: "Retry reservation" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Reschedule appointment" })).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Network unavailable|Reservation could not be loaded/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry reservation" }));
+    expect(await screen.findByLabelText("New city *")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(mocks.detail).toHaveBeenCalledTimes(2);
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+
+  it.each([{ languages: [] }, { languages: detail.languages }])(
+    "keeps the current SVP language when omitted from catalogue %j",
+    async ({ languages }) => {
+      mocks.detail.mockResolvedValue({
+        ok: true,
+        data: { ...detail, languageCode: "LOABB", languages },
+      });
+      renderPanel();
+      expect(await screen.findByLabelText("Exam language")).toHaveValue("LOABB");
+      expect(screen.getByRole("option", { name: "LOABB" })).toHaveValue("LOABB");
+      fireEvent.change(screen.getByLabelText("New city *"), { target: { value: "Dhaka" } });
+      fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+      await waitFor(() =>
+        expect(mocks.reschedule).toHaveBeenCalledWith({
+          data: expect.objectContaining({ languageCode: "LOABB" }),
+        }),
+      );
+    },
+  );
+});
+
+async function selectAvailableReschedule(isTargeted: boolean) {
+  fireEvent.change(await screen.findByLabelText("New city *"), { target: { value: "Dhaka" } });
+  if (!isTargeted) {
+    fireEvent.change(screen.getByLabelText("Month to check"), { target: { value: "2026-12" } });
+  }
+  fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+  if (isTargeted) {
+    fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
+  }
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+  );
+}
+
+describe.each([true, false])("reschedule selection refresh (targeted=%s)", (isTargeted) => {
+  it("disables Confirm when the selected session or slot is removed", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPanel({ client, isTargeted });
+    await selectAvailableReschedule(isTargeted);
+    const lookup = isTargeted ? mocks.sessions : mocks.slots;
+    lookup.mockResolvedValue({ ok: true, data: [] });
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: [isTargeted ? "svp-reschedule-sessions" : "svp-reschedule-slots"],
+      });
+    });
+    expect(await screen.findByText("No sessions available.")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "Confirm reschedule" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+    expect(mocks.siteReschedule).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "disables Confirm after an availability failure (throws=%s)",
+    async (throws) => {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      renderPanel({ client, isTargeted });
+      await selectAvailableReschedule(isTargeted);
+      const lookup = isTargeted ? mocks.sessions : mocks.slots;
+      if (throws) lookup.mockRejectedValue(new Error("Network unavailable"));
+      else
+        lookup.mockResolvedValue({
+          ok: false,
+          needsSignIn: false,
+          message: "Availability unavailable",
+        });
+      await act(async () => {
+        await client.invalidateQueries({
+          queryKey: [isTargeted ? "svp-reschedule-sessions" : "svp-reschedule-slots"],
+        });
+      });
+      expect(await screen.findByRole("button", { name: "Retry sessions" })).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Network unavailable|Availability unavailable/),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled();
+      expect(mocks.reschedule).not.toHaveBeenCalled();
+      expect(mocks.siteReschedule).not.toHaveBeenCalled();
+    },
+  );
+
+  it("disables Confirm during a refetch and restores it when availability is confirmed", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPanel({ client, isTargeted });
+    await selectAvailableReschedule(isTargeted);
+    const lookup = isTargeted ? mocks.sessions : mocks.slots;
+    const data = isTargeted
+      ? [
+          {
+            id: 777,
+            startAt: "2026-12-01 11:00:00",
+            endAt: null,
+            duration: 3600,
+            availableSeats: 4,
+            city: "Dhaka",
+            centerName: "Dhaka Center",
+            siteId: null,
+          },
+        ]
+      : [{ id: "slot-1", siteId: 9, startAt: "2026-12-01T10:00:00", duration: 30 }];
+    let resolve!: (result: unknown) => void;
+    lookup.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    let refetch!: Promise<void>;
+    act(() => {
+      refetch = client.invalidateQueries({
+        queryKey: [isTargeted ? "svp-reschedule-sessions" : "svp-reschedule-slots"],
+      });
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled(),
+    );
+    await act(async () => {
+      resolve({ ok: true, data });
+      await refetch;
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+    );
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+    expect(mocks.siteReschedule).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshed reschedule data", () => {
+  it("blocks a selected targeted session when its remaining seats reach zero", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPanel({ client });
+    await selectAvailableReschedule(true);
+    mocks.sessions.mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          id: 777,
+          startAt: "2026-12-01 11:00:00",
+          endAt: null,
+          duration: 3600,
+          availableSeats: 0,
+          city: "Dhaka",
+          centerName: "Dhaka Center",
+          siteId: null,
+        },
+      ],
+    });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["svp-reschedule-sessions"] });
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled(),
+    );
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+
+  it("submits refreshed site-slot details when the selected slot ID is unchanged", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPanel({ client, isTargeted: false });
+    await selectAvailableReschedule(false);
+    mocks.slots.mockResolvedValue({
+      ok: true,
+      data: [{ id: "slot-1", siteId: 9, startAt: "2026-12-01T11:30:00", duration: 45 }],
+    });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["svp-reschedule-slots"] });
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    await waitFor(() =>
+      expect(mocks.siteReschedule).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          slotId: "slot-1",
+          siteId: 9,
+          startAt: "2026-12-01T11:30:00",
+          duration: 45,
+        }),
+      }),
+    );
+  });
+});
+
+describe("quiet reschedule recovery", () => {
+  it("offers reconnect without exposing an expired-session response", async () => {
+    const onReconnect = vi.fn();
+    mocks.detail.mockResolvedValue({
+      ok: false,
+      needsSignIn: true,
+      message: "RAW_PROVIDER_TRACE expired token HTTP 401",
+    });
+    renderPanel({ onReconnect });
+    const reconnect = await screen.findByRole("button", { name: "Reconnect to SVP" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/RAW_PROVIDER_TRACE|HTTP 401|expired token/)).not.toBeInTheDocument();
+    fireEvent.click(reconnect);
+    expect(onReconnect).toHaveBeenCalledOnce();
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+
+  it("recovers date loading through Retry without rendering provider diagnostics", async () => {
+    mocks.dates.mockResolvedValueOnce({
+      ok: false,
+      needsSignIn: false,
+      message: "RAW_PROVIDER_TRACE dates HTTP 502",
+    });
+    renderPanel();
+    const retry = await screen.findByRole("button", { name: "Retry dates" });
+    expect(screen.queryByText(/RAW_PROVIDER_TRACE|HTTP 502/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled();
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: /1 Dec 2026/ })).toBeInTheDocument();
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+
+  it("keeps native site slots usable when optional center metadata fails quietly", async () => {
+    mocks.takamol.mockImplementation(({ data }: { data: { endpoint: string; city?: string } }) =>
+      Promise.resolve(
+        data.endpoint === "cities"
+          ? takamolResponse(data)
+          : { success: false, status: 502, message: "RAW_PROVIDER_TRACE center metadata" },
+      ),
+    );
+    renderPanel({ isTargeted: false });
+    await selectAvailableReschedule(false);
+    expect(await screen.findByRole("button", { name: "Retry centers" })).toBeInTheDocument();
+    expect(
+      screen.queryByText(/RAW_PROVIDER_TRACE|Takamol centers|Takamol availability/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled();
+    expect(mocks.siteReschedule).not.toHaveBeenCalled();
+  });
+
+  it("keeps a rejected reschedule unconfirmed and allows reviewing the booking without an error toast", async () => {
+    mocks.reschedule.mockResolvedValueOnce({
+      ok: false,
+      needsSignIn: false,
+      message: "RAW_PROVIDER_TRACE reschedule failed HTTP 500",
+    });
+    renderPanel();
+    await selectAvailableReschedule(true);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    const review = await screen.findByRole("button", { name: "Review booking" });
+    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled();
+    expect(screen.queryByText("Appointment rescheduled")).not.toBeInTheDocument();
+    expect(screen.queryByText(/RAW_PROVIDER_TRACE|HTTP 500/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    fireEvent.click(review);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+    );
+    expect(mocks.reschedule).toHaveBeenCalledOnce();
   });
 });
