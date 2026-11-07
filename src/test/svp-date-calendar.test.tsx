@@ -11,6 +11,31 @@ const options = [
 ];
 
 describe("SVP date calendar", () => {
+  it("loads another month inside the same calendar and keeps date selection closed afterwards", () => {
+    const onMonthChange = vi.fn();
+    const onSelect = vi.fn();
+    const props = {
+      month: "2026-11",
+      monthOptions: [
+        { value: "2026-11", label: "November 2026" },
+        { value: "2026-12", label: "December 2026" },
+      ],
+      onMonthChange,
+      onSelect,
+      value: "",
+    };
+    const { rerender } = render(<SvpDateCalendar {...props} options={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Exam date" }));
+    fireEvent.change(screen.getByLabelText("Month to check"), { target: { value: "2026-12" } });
+    expect(onMonthChange).toHaveBeenCalledWith("2026-12");
+    rerender(
+      <SvpDateCalendar {...props} month="2026-12" options={[{ date: "2026-12-02", seats: 3 }]} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /2 Dec 2026/ }));
+    expect(onSelect).toHaveBeenCalledWith("2026-12-02");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("stays closed until clicked, then shows available dates with seats", () => {
     render(<SvpDateCalendar options={options} value="" onSelect={vi.fn()} />);
 

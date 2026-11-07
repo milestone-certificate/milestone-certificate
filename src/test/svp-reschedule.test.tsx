@@ -172,6 +172,23 @@ function renderPanel(props?: {
   );
 }
 
+async function openDates() {
+  if (screen.queryByRole("dialog", { name: "Available exam dates" })) return;
+  const field = await screen.findByRole("button", { name: "Exam date" });
+  await waitFor(() => expect(field).toBeEnabled());
+  fireEvent.click(field);
+}
+
+async function pickRescheduleDate() {
+  await openDates();
+  fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+}
+
+async function changeMonth(value: string) {
+  await openDates();
+  fireEvent.change(await screen.findByLabelText("Month to check"), { target: { value } });
+}
+
 describe("SVP reschedule panel", () => {
   it("shows the complete center name with its own time range and available seats", async () => {
     const centerName =
@@ -192,11 +209,14 @@ describe("SVP reschedule panel", () => {
       ],
     });
     renderPanel();
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await pickRescheduleDate();
     const center = await screen.findByRole("button", { name: new RegExp(centerName) });
     expect(within(center).getByText(centerName)).toBeInTheDocument();
     expect(within(center).getByText("11:00 – 12:00")).toBeInTheDocument();
     expect(within(center).getByText("4")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Available exam dates" })).not.toBeInTheDocument();
+    await waitFor(() => expect(center).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled();
     expect(mocks.reschedule).not.toHaveBeenCalled();
   });
 
@@ -209,7 +229,7 @@ describe("SVP reschedule panel", () => {
     fireEvent.change(await screen.findByLabelText("New city *"), {
       target: { value: "Dhaka" },
     });
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
 
@@ -258,7 +278,7 @@ describe("SVP reschedule panel", () => {
     fireEvent.change(await screen.findByLabelText("New city *"), {
       target: { value: "Dhaka" },
     });
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await pickRescheduleDate();
     fireEvent.click((await screen.findAllByRole("button", { name: /Dhaka Center/ }))[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
 
@@ -296,7 +316,7 @@ describe("SVP reschedule panel", () => {
     fireEvent.change(await screen.findByLabelText("New city *"), {
       target: { value: "Dhaka" },
     });
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
 
@@ -340,7 +360,7 @@ describe("SVP reschedule panel", () => {
     fireEvent.change(await screen.findByLabelText("New city *"), {
       target: { value: "Dhaka" },
     });
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
 
@@ -377,9 +397,7 @@ describe("SVP site-based reschedule", () => {
     expect(citySelect).toHaveValue("");
     expect(mocks.takamol).toHaveBeenCalledWith({ data: { endpoint: "cities", categoryId: "159" } });
     fireEvent.change(citySelect, { target: { value: "Dhaka" } });
-    fireEvent.change(await screen.findByLabelText("Month to check"), {
-      target: { value: "2026-12" },
-    });
+    await changeMonth("2026-12");
     await waitFor(() =>
       expect(mocks.sites).toHaveBeenLastCalledWith({
         data: {
@@ -390,7 +408,7 @@ describe("SVP site-based reschedule", () => {
         },
       }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await pickRescheduleDate();
 
     const realSlot = await screen.findByRole("button", { name: /11:30/ });
     expect(realSlot).toBeEnabled();
@@ -492,7 +510,7 @@ describe("SVP site-based reschedule", () => {
     );
   });
 
-  it("shows available Takamol test centers after date selection and filters slots by center", async () => {
+  it("shows every center/session card directly after choosing a date, like booking", async () => {
     mocks.slots.mockResolvedValue({
       ok: true,
       data: [
@@ -504,34 +522,19 @@ describe("SVP site-based reschedule", () => {
 
     const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
     fireEvent.change(citySelect, { target: { value: "Dhaka" } });
-    fireEvent.change(await screen.findByLabelText("Month to check"), {
-      target: { value: "2026-12" },
-    });
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await changeMonth("2026-12");
+    await pickRescheduleDate();
 
-    // The center catalogue shows up only after a date is chosen.
-    expect(await screen.findByText("Available test centers · Tue, 1 Dec 2026")).toBeInTheDocument();
-    const centerChip = await screen.findByRole("button", { name: "Show only Site A" });
-    expect(
-      screen.getByRole("button", { name: "Show all available test centers" }),
-    ).toBeInTheDocument();
-    expect(centerChip).toHaveTextContent("Site A · Dhaka · 1 available");
-    await screen.findByRole("button", { name: /10:00/ });
-    expect(screen.getByRole("button", { name: /14:00/ })).toBeInTheDocument();
-
-    // Choosing a center narrows the slot list to that center's availability.
-    fireEvent.click(centerChip);
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /10:00/ })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /14:00/ })).not.toBeInTheDocument();
-    });
+    expect(await screen.findByText("Test center")).toBeInTheDocument();
+    const morning = await screen.findByRole("button", { name: /Site A.*10:00/ });
+    const afternoon = await screen.findByRole("button", { name: /Site A.*14:00/ });
+    expect(morning).toBeInTheDocument();
+    expect(afternoon).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show only|Show all/ })).not.toBeInTheDocument();
+    fireEvent.click(afternoon);
+    expect(afternoon).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled();
-
-    // All centers restores the full slot list.
-    fireEvent.click(screen.getByRole("button", { name: "Show all available test centers" }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /14:00/ })).toBeInTheDocument();
-    });
+    expect(mocks.siteReschedule).not.toHaveBeenCalled();
   });
 
   it("holds a slot and reschedules with the prometric exam id and site", async () => {
@@ -546,9 +549,7 @@ describe("SVP site-based reschedule", () => {
     fireEvent.change(citySelect, {
       target: { value: "Dhaka" },
     });
-    fireEvent.change(await screen.findByLabelText("Month to check"), {
-      target: { value: "2026-12" },
-    });
+    await changeMonth("2026-12");
     await waitFor(() =>
       expect(mocks.sites).toHaveBeenLastCalledWith({
         data: {
@@ -559,7 +560,7 @@ describe("SVP site-based reschedule", () => {
         },
       }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await pickRescheduleDate();
     expect(await screen.findByRole("button", { name: /10:00/ })).toBeEnabled();
     const confirmButton = screen.getByRole("button", { name: "Confirm reschedule" });
     await waitFor(() => expect(confirmButton).toBeEnabled());
@@ -651,10 +652,8 @@ describe("SVP site-based reschedule", () => {
     fireEvent.change(await screen.findByLabelText("New city *"), {
       target: { value: "Dhaka" },
     });
-    fireEvent.change(await screen.findByLabelText("Month to check"), {
-      target: { value: "2026-12" },
-    });
-    fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+    await changeMonth("2026-12");
+    await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /11:00/ }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
 
@@ -699,7 +698,7 @@ describe("reschedule error recovery and language preservation", () => {
       expect(await screen.findByLabelText("Exam language")).toHaveValue("LOABB");
       expect(screen.getByRole("option", { name: "LOABB" })).toHaveValue("LOABB");
       fireEvent.change(screen.getByLabelText("New city *"), { target: { value: "Dhaka" } });
-      fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+      await pickRescheduleDate();
       fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
       fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
       await waitFor(() =>
@@ -714,9 +713,9 @@ describe("reschedule error recovery and language preservation", () => {
 async function selectAvailableReschedule(isTargeted: boolean) {
   fireEvent.change(await screen.findByLabelText("New city *"), { target: { value: "Dhaka" } });
   if (!isTargeted) {
-    fireEvent.change(screen.getByLabelText("Month to check"), { target: { value: "2026-12" } });
+    await changeMonth("2026-12");
   }
-  fireEvent.click(await screen.findByRole("button", { name: /1 Dec 2026/ }));
+  await pickRescheduleDate();
   if (isTargeted) {
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
   }
@@ -907,6 +906,7 @@ describe("quiet reschedule recovery", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled();
     fireEvent.click(retry);
+    await openDates();
     expect(await screen.findByRole("button", { name: /1 Dec 2026/ })).toBeInTheDocument();
     expect(mocks.reschedule).not.toHaveBeenCalled();
   });

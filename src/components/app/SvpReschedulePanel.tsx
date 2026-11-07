@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, Clock3, LoaderCircle, RotateCcw, X } from "lucide-react";
+import { CheckCircle2, Clock3, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, NativeSelect } from "@/components/app/ui-bits";
 import { SvpSessionOptions } from "@/components/app/SvpSessionOptions";
+import { SvpDateCalendar } from "@/components/app/SvpDateCalendar";
 import {
   getSvpReservationDetail,
   listSvpExamSessions,
@@ -29,16 +30,6 @@ import {
 } from "@/lib/takamol-availability.ui";
 
 const MANUAL_CITY_OPTION = "__manual_city__";
-
-function centerFilterKey(centerId: string | null, centerName: string | null): string {
-  if (centerId?.trim()) return `id:${centerId.trim()}`;
-  const normalizedName = centerName
-    ?.normalize("NFKC")
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/\s+/g, " ");
-  return normalizedName ? `name:${normalizedName}` : "";
-}
 
 function splitDateTime(value: string): { date: string; time: string } {
   const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(value);
@@ -120,7 +111,6 @@ export function SvpReschedulePanel({
   const [selectedSession, setSelectedSession] = useState<SvpExamSession | null>(null);
   const [prometricDate, setPrometricDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<SvpPrometricSlot | null>(null);
-  const [selectedCenterKey, setSelectedCenterKey] = useState("");
   const [done, setDone] = useState(false);
   // The appointment SVP actually stored; load-balancer holds can assign a different
   // session than the one the agent picked, so this is read back after the reschedule.
@@ -337,48 +327,6 @@ export function SvpReschedulePanel({
         : [],
     [city, prometricDate, prometricSites, prometricSlots, takamolSessionRows],
   );
-  // Takamol centers that actually have availability rows for the chosen date.
-  const availableTakamolCenters = useMemo(() => {
-    const choices = new Map<
-      string,
-      { key: string; label: string; location: string | null; availableRows: number }
-    >();
-    for (const row of takamolSessionRows) {
-      if (!row.available) continue;
-      const center = takamolCenters.find((entry) => entry.id === row.centerId);
-      const label = row.centerName ?? center?.label ?? "";
-      const key = centerFilterKey(row.centerId, label || null);
-      if (!key) continue;
-      const current = choices.get(key);
-      if (current) {
-        current.availableRows += 1;
-      } else {
-        choices.set(key, {
-          key,
-          label: label || `Test center ${row.centerId}`,
-          location: center?.location ?? null,
-          availableRows: 1,
-        });
-      }
-    }
-    return [...choices.values()].sort((a, b) => a.label.localeCompare(b.label));
-  }, [takamolCenters, takamolSessionRows]);
-  // A chosen center narrows the slot list to that center's availability rows.
-  const visiblePrometricSlots = useMemo(
-    () =>
-      selectedCenterKey
-        ? prometricSlots.filter((slot) => {
-            const match = takamolSlotMappings.find((entry) => entry.slot?.id === slot.id);
-            if (!match) return false;
-            const center = takamolCenters.find((entry) => entry.id === match.row.centerId);
-            return (
-              centerFilterKey(match.row.centerId, match.row.centerName ?? center?.label ?? null) ===
-              selectedCenterKey
-            );
-          })
-        : prometricSlots,
-    [prometricSlots, selectedCenterKey, takamolCenters, takamolSlotMappings],
-  );
   const slotSeats = useCallback(
     (slot: SvpPrometricSlot) =>
       slot.availableSeats ??
@@ -403,13 +351,16 @@ export function SvpReschedulePanel({
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const sessions = sessionsQuery.data?.ok ? sessionsQuery.data.data : [];
+  const sessions = useMemo(
+    () => (sessionsQuery.data?.ok ? sessionsQuery.data.data : []),
+    [sessionsQuery.data],
+  );
   const currentSession = selectedSession
     ? (sessions.find((entry) => entry.id === selectedSession.id && entry.availableSeats !== 0) ??
       null)
     : null;
   const currentSlot = selectedSlot
-    ? (visiblePrometricSlots.find(
+    ? (prometricSlots.find(
         (slot) =>
           slot.id === selectedSlot.id &&
           slot.siteId === selectedSlot.siteId &&
@@ -506,7 +457,6 @@ export function SvpReschedulePanel({
     setSelectedSession(null);
     setPrometricDate(null);
     setSelectedSlot(null);
-    setSelectedCenterKey("");
   };
 
   const selectCity = (value: string) => {
@@ -533,7 +483,6 @@ export function SvpReschedulePanel({
   const selectDateOption = (entry: { date: string; city: string | null }) => {
     setSelectedSession(null);
     setSelectedSlot(null);
-    setSelectedCenterKey("");
     if (isTargeted) {
       setSelectedDate(
         dates.find(
@@ -568,10 +517,30 @@ export function SvpReschedulePanel({
   );
 
   useEffect(() => {
-    if (isTargeted || !prometricDate || selectedSlot || visiblePrometricSlots.length === 0) return;
-    const next = visiblePrometricSlots.find((slot) => slotSeats(slot) !== 0);
+    if (
+      !isTargeted ||
+      !selectedDate ||
+      selectedSession ||
+      sessionsQuery.isFetching ||
+      !sessionsQuery.data?.ok
+    )
+      return;
+    const firstAvailable = sessions.find((session) => session.availableSeats !== 0);
+    if (firstAvailable) setSelectedSession(firstAvailable);
+  }, [
+    isTargeted,
+    selectedDate,
+    selectedSession,
+    sessions,
+    sessionsQuery.isFetching,
+    sessionsQuery.data,
+  ]);
+
+  useEffect(() => {
+    if (isTargeted || !prometricDate || selectedSlot || prometricSlots.length === 0) return;
+    const next = prometricSlots.find((slot) => slotSeats(slot) !== 0);
     if (next) chooseSlot(next);
-  }, [chooseSlot, isTargeted, prometricDate, selectedSlot, slotSeats, visiblePrometricSlots]);
+  }, [chooseSlot, isTargeted, prometricDate, selectedSlot, slotSeats, prometricSlots]);
 
   if (detailQuery.isPending) {
     return (
@@ -685,12 +654,14 @@ export function SvpReschedulePanel({
           ...(city ? [city] : []),
         ]),
       ].sort((a, b) => a.localeCompare(b));
-  const shownDateOptions: Array<{ date: string; city: string | null }> = isTargeted
-    ? dateOptions.map((entry) => ({
-        date: splitDateTime(entry.startAt).date,
-        city: entry.city,
-      }))
-    : siteDateOptions;
+  const shownDateOptions: Array<{ date: string; city: string | null; seats?: number | null }> =
+    isTargeted
+      ? dateOptions.map((entry) => ({
+          date: splitDateTime(entry.startAt).date,
+          city: entry.city,
+          seats: entry.seats,
+        }))
+      : siteDateOptions;
   const activeDateValue = isTargeted
     ? selectedDate
       ? splitDateTime(selectedDate.startAt).date
@@ -702,7 +673,6 @@ export function SvpReschedulePanel({
   const datesNeedSignIn = Boolean(
     dateQuery.data && !dateQuery.data.ok && dateQuery.data.needsSignIn,
   );
-  const datesLoaded = isTargeted ? Boolean(datesQuery.data?.ok) : Boolean(sitesQuery.data?.ok);
   const sessionViews = isTargeted
     ? sessions.map((entry) => ({
         key: `s-${entry.id}`,
@@ -717,7 +687,7 @@ export function SvpReschedulePanel({
           setSelectedSlot(null);
         },
       }))
-    : visiblePrometricSlots.map((slot) => {
+    : prometricSlots.map((slot) => {
         const site = prometricSites.find((entry) => entry.siteId === slot.siteId) ?? null;
         const takamolMatch = takamolSlotMappings.find((entry) => entry.slot?.id === slot.id);
         return {
@@ -796,26 +766,6 @@ export function SvpReschedulePanel({
             ))}
           </NativeSelect>
         </Field>
-        {!isTargeted && (
-          <Field label="Month to check">
-            <NativeSelect
-              value={selectedMonth}
-              onChange={(event) => {
-                setSelectedMonth(event.target.value);
-                setPrometricDate(null);
-                setSelectedSlot(null);
-                setSelectedSession(null);
-                setSelectedCenterKey("");
-              }}
-            >
-              {monthOptions.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {entry.label}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-        )}
       </div>
 
       {!isTargeted && manualCityMode && (
@@ -866,13 +816,6 @@ export function SvpReschedulePanel({
         </Button>
       )}
 
-      {datesLoading &&
-        !datesFailed &&
-        (isTargeted ? effectiveCategoryId != null : Boolean(city)) && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-            <LoaderCircle className="h-4 w-4 animate-spin" /> Loading reschedule dates…
-          </p>
-        )}
       {datesFailed && (
         <Button
           type="button"
@@ -886,98 +829,33 @@ export function SvpReschedulePanel({
           {datesNeedSignIn && onReconnect ? "Reconnect to SVP" : "Retry dates"}
         </Button>
       )}
-      {!datesLoading && datesLoaded && shownDateOptions.length === 0 && (
-        <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-          No dates available.
-        </p>
-      )}
-
-      {shownDateOptions.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">New date</p>
-          <div className="flex flex-wrap gap-2">
-            {shownDateOptions.map((entry) => {
-              const active = activeDateValue === entry.date;
-              return (
-                <Button
-                  key={`${entry.date}-${entry.city ?? ""}`}
-                  type="button"
-                  size="sm"
-                  variant={active ? "default" : "outline"}
-                  onClick={() => selectDateOption(entry)}
-                >
-                  <CalendarDays className="mr-1 h-3.5 w-3.5" /> {formatDate(entry.date)}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {!isTargeted && prometricDate && (
-        <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
-          <p className="text-sm font-medium">
-            Available test centers · {formatDate(prometricDate)}
-          </p>
-          {takamolSessionsQuery.isFetching && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading centers…
-            </p>
-          )}
-          {!takamolSessionsQuery.isFetching &&
-            (takamolSessionsQuery.isError ||
-              (takamolSessionsQuery.data && !takamolSessionsQuery.data.success)) && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void takamolSessionsQuery.refetch()}
-              >
-                Retry centers
-              </Button>
-            )}
-          {availableTakamolCenters.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={selectedCenterKey ? "outline" : "default"}
-                aria-pressed={!selectedCenterKey}
-                aria-label="Show all available test centers"
-                onClick={() => {
-                  setSelectedCenterKey("");
-                  setSelectedSlot(null);
-                  setSelectedSession(null);
-                }}
-              >
-                All centers
-              </Button>
-              {availableTakamolCenters.map((entry) => (
-                <Button
-                  key={entry.key}
-                  type="button"
-                  size="sm"
-                  variant={selectedCenterKey === entry.key ? "default" : "outline"}
-                  aria-pressed={selectedCenterKey === entry.key}
-                  aria-label={`Show only ${entry.label}`}
-                  onClick={() => {
-                    setSelectedCenterKey(entry.key);
-                    setSelectedSlot(null);
-                    setSelectedSession(null);
-                  }}
-                >
-                  {entry.label}
-                  {entry.location ? ` · ${entry.location}` : ""} · {entry.availableRows} available
-                </Button>
-              ))}
-            </div>
-          )}
-        </div>
+      {(shownDateOptions.length > 0 || datesLoading || Boolean(city.trim())) && (
+        <SvpDateCalendar
+          options={shownDateOptions}
+          value={activeDateValue}
+          loading={datesLoading}
+          disabled={datesLoading || (isTargeted ? effectiveCategoryId == null : !city.trim())}
+          onSelect={(date) =>
+            selectDateOption(
+              shownDateOptions.find((entry) => entry.date === date) ?? { date, city },
+            )
+          }
+          {...(!isTargeted
+            ? {
+                month: selectedMonth,
+                monthOptions,
+                onMonthChange: (month: string) => {
+                  setSelectedMonth(month);
+                  resetSelection();
+                },
+              }
+            : {})}
+        />
       )}
 
       {activeDateValue && (
         <div className="space-y-2">
-          <p className="text-sm font-medium">{isTargeted ? "New session" : "New slot"}</p>
+          <p className="text-sm font-medium">Test center</p>
           {sessionsLoading && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
               <LoaderCircle className="h-4 w-4 animate-spin" /> Loading sessions…
@@ -996,6 +874,19 @@ export function SvpReschedulePanel({
               {sessionsNeedSignIn && onReconnect ? "Reconnect to SVP" : "Retry sessions"}
             </Button>
           )}
+          {!isTargeted &&
+            !takamolSessionsQuery.isFetching &&
+            (takamolSessionsQuery.isError ||
+              (takamolSessionsQuery.data && !takamolSessionsQuery.data.success)) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void takamolSessionsQuery.refetch()}
+              >
+                Retry centers
+              </Button>
+            )}
           {!sessionsLoading && sessionsLoaded && sessionViews.length === 0 && (
             <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
               No sessions available.

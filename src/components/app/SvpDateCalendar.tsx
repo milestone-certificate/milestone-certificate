@@ -10,6 +10,9 @@ type Props = {
   loading?: boolean;
   disabled?: boolean;
   onSelect: (date: string) => void;
+  month?: string;
+  monthOptions?: Array<{ value: string; label: string }>;
+  onMonthChange?: (month: string) => void;
 };
 
 function formatDate(date: string) {
@@ -22,7 +25,16 @@ function formatDate(date: string) {
  * Click-to-open exam date calendar. Dates SVP reports as available are highlighted;
  * choosing one closes the panel, and clicking the field opens it again.
  */
-export function SvpDateCalendar({ options, value, loading, disabled, onSelect }: Props) {
+export function SvpDateCalendar({
+  options,
+  value,
+  loading,
+  disabled,
+  onSelect,
+  month,
+  monthOptions,
+  onMonthChange,
+}: Props) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
@@ -84,6 +96,21 @@ export function SvpDateCalendar({ options, value, loading, disabled, onSelect }:
           aria-label="Available exam dates"
           className="absolute z-30 mt-1 w-full space-y-3 rounded-xl border bg-popover p-3 shadow-lg"
         >
+          {onMonthChange && monthOptions && (
+            <select
+              aria-label="Month to check"
+              value={month}
+              onChange={(event) => onMonthChange(event.target.value)}
+              disabled={loading}
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
+            >
+              {monthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
           {options.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               {loading ? "Loading available dates…" : "No dates with free seats for this city."}
@@ -101,6 +128,7 @@ export function SvpDateCalendar({ options, value, loading, disabled, onSelect }:
                       <button
                         key={option.date}
                         type="button"
+                        disabled={loading || disabled}
                         onClick={() => {
                           onSelect(option.date);
                           setOpen(false);
