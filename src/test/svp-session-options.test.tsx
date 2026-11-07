@@ -23,7 +23,7 @@ describe("SVP session options", () => {
     render(<SvpSessionOptions views={[first, second]} />);
     const button = screen.getByRole("button", { name: /Cumilla Technical Training Centre/ });
     expect(within(button).getByText(first.center!)).toBeInTheDocument();
-    expect(within(button).getByText("09:30 – 10:30")).toBeInTheDocument();
+    expect(within(button).getByText("9:30 AM – 10:30 AM · সকাল")).toBeInTheDocument();
     expect(within(button).getByText("7")).toBeInTheDocument();
     expect(
       within(screen.getByRole("button", { name: /Second center/ })).getByText("2"),

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Field, NativeSelect } from "@/components/app/ui-bits";
 import { SvpSessionOptions } from "@/components/app/SvpSessionOptions";
 import { SvpDateCalendar } from "@/components/app/SvpDateCalendar";
+import { formatSvpDateTime } from "@/lib/svp-time";
 import {
   getSvpReservationDetail,
   listSvpExamSessions,
@@ -35,22 +36,6 @@ function splitDateTime(value: string): { date: string; time: string } {
   const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(value);
   if (match) return { date: match[1] ?? "", time: match[2] ?? "" };
   return { date: value.slice(0, 10), time: "" };
-}
-
-function formatDate(date: string): string {
-  const parsed = new Date(`${date}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatSlot(value: string): string {
-  const { date, time } = splitDateTime(value);
-  return `${formatDate(date)}${time ? ` · ${time}` : ""}`;
 }
 
 function hashSlotId(value: string): number {
@@ -613,7 +598,7 @@ export function SvpReschedulePanel({
           <div>
             <h2 className="text-lg font-bold">Appointment rescheduled</h2>
             <p className="text-sm text-muted-foreground">
-              New session: {appointment ? formatSlot(appointment.startAt) : "—"}
+              New session: {appointment ? formatSvpDateTime(appointment.startAt) : "—"}
             </p>
             {appointment?.centerName && (
               <p className="text-xs text-muted-foreground">{appointment.centerName}</p>
@@ -720,7 +705,7 @@ export function SvpReschedulePanel({
           </p>
           <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" /> Current session:{" "}
-            {detail.startAt ? formatSlot(detail.startAt) : "—"}
+            {detail.startAt ? formatSvpDateTime(detail.startAt) : "—"}
             {rescheduleTimes !== null ? ` · ${rescheduleTimes} reschedule(s) left` : ""}
           </p>
         </div>

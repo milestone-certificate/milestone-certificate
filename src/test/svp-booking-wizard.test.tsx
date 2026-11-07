@@ -470,10 +470,10 @@ describe("SVP booking wizard", () => {
     await openDatesStep();
     await pickDate("5 Nov 2026");
     const secondCenter = await screen.findByRole("button", { name: /Second Dhaka Center/ });
-    expect(within(secondCenter).getByText("13:00")).toBeInTheDocument();
+    expect(within(secondCenter).getByText("1:00 PM · দুপুর")).toBeInTheDocument();
     expect(within(secondCenter).getByText("12")).toBeInTheDocument();
-    const firstCenter = screen.getByRole("button", { name: /Dhaka Center.*09:30/ });
-    expect(within(firstCenter).getByText("09:30 – 10:30")).toBeInTheDocument();
+    const firstCenter = screen.getByRole("button", { name: /Dhaka Center.*9:30 AM/ });
+    expect(within(firstCenter).getByText("9:30 AM – 10:30 AM · সকাল")).toBeInTheDocument();
     expect(within(firstCenter).getByText("7")).toBeInTheDocument();
     fireEvent.click(secondCenter);
     expect(secondCenter).toHaveAttribute("aria-pressed", "true");

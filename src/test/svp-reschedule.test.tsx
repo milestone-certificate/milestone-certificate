@@ -212,7 +212,7 @@ describe("SVP reschedule panel", () => {
     await pickRescheduleDate();
     const center = await screen.findByRole("button", { name: new RegExp(centerName) });
     expect(within(center).getByText(centerName)).toBeInTheDocument();
-    expect(within(center).getByText("11:00 – 12:00")).toBeInTheDocument();
+    expect(within(center).getByText("11:00 AM · সকাল – 12:00 PM · দুপুর")).toBeInTheDocument();
     expect(within(center).getByText("4")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Available exam dates" })).not.toBeInTheDocument();
     await waitFor(() => expect(center).toHaveAttribute("aria-pressed", "true"));
@@ -321,7 +321,7 @@ describe("SVP reschedule panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
 
     // The hold assigned a 15:00 session, so the panel must not report the picked 11:00.
-    expect(await screen.findByText(/15:00/)).toBeInTheDocument();
+    expect(await screen.findByText(/3:00 PM · দুপুর/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onDone).toHaveBeenCalledWith({
       startAt: "2026-12-01 15:00:00",
@@ -527,7 +527,7 @@ describe("SVP site-based reschedule", () => {
 
     expect(await screen.findByText("Test center")).toBeInTheDocument();
     const morning = await screen.findByRole("button", { name: /Site A.*10:00/ });
-    const afternoon = await screen.findByRole("button", { name: /Site A.*14:00/ });
+    const afternoon = await screen.findByRole("button", { name: /Site A.*2:00 PM/ });
     expect(morning).toBeInTheDocument();
     expect(afternoon).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Show only|Show all/ })).not.toBeInTheDocument();

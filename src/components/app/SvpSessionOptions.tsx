@@ -1,4 +1,5 @@
 import { CheckCircle2 } from "lucide-react";
+import { formatSvpTimeRange } from "@/lib/svp-time";
 
 export type SvpSessionOption = {
   key: string;
@@ -11,16 +12,6 @@ export type SvpSessionOption = {
   onSelect: () => void;
 };
 
-// Keep SVP's test-center wall clock. Date-only capacity tokens have no time.
-function sessionTime(value: string | null | undefined): string | null {
-  return (
-    value
-      ?.match(/^\d{4}-\d{2}-\d{2}[T ]([01]\d|2[0-3]):([0-5]\d)/)
-      ?.slice(1)
-      .join(":") ?? null
-  );
-}
-
 export function SvpSessionOptions({
   views,
   disabled = false,
@@ -31,9 +22,7 @@ export function SvpSessionOptions({
   return (
     <div className="grid min-w-0 gap-2 sm:grid-cols-2" role="group" aria-label="Test centers">
       {views.map((view) => {
-        const start = sessionTime(view.startAt);
-        const end = sessionTime(view.endAt);
-        const time = start ? `${start}${end ? ` – ${end}` : ""}` : "—";
+        const time = formatSvpTimeRange(view.startAt, view.endAt);
         return (
           <button
             key={view.key}

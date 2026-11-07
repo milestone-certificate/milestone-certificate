@@ -34,6 +34,7 @@ import { SvpCardPayment, SvpPaymentPage } from "@/components/app/SvpCardPayment"
 import { SvpDateCalendar } from "@/components/app/SvpDateCalendar";
 import { SvpResultPanel } from "@/components/app/SvpResultPanel";
 import { SvpSessionOptions, type SvpSessionOption } from "@/components/app/SvpSessionOptions";
+import { formatSvpDateTime } from "@/lib/svp-time";
 import { supabase } from "@/integrations/supabase/client";
 import {
   cancelSvpReservation,
@@ -2459,7 +2460,7 @@ export function SvpBookingWizard() {
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">Date and time</dt>
-                  <dd className="font-medium">{formatSlot(selectedSession.startAt)}</dd>
+                  <dd className="font-medium">{formatSvpDateTime(selectedSession.startAt)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">Test center</dt>
@@ -2784,7 +2785,7 @@ export function SvpBookingWizard() {
                         {entry.occupationName ?? "Occupation"} · #{entry.id}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {entry.startAt ? formatSlot(entry.startAt) : "Date not set"}
+                        {entry.startAt ? formatSvpDateTime(entry.startAt) : "Date not set"}
                         {(entry.centerName ?? entry.city)
                           ? ` · ${entry.centerName ?? entry.city}`
                           : ""}
