@@ -1,29 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import {
-  buildTakamolUrl,
-  fetchTakamolWithRetry,
-  readTakamolJson,
-  releaseTakamolBody,
-  takamolErrorMessage,
-  takamolLookupSchema,
-  unwrapTakamolResponse,
-  type TakamolLookupResult,
-} from "@/lib/takamol-availability.shared";
-
-/** Resolve the key from the platform env or the Vite-injected env (dev). */
-function takamolApiKey(): string | null {
-  const candidates = [
-    process.env["TAKAMOL_API_KEY"],
-    (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[
-      "TAKAMOL_API_KEY"
-    ],
-  ];
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-  }
-  return null;
-}
+import { takamolLookupSchema, type TakamolLookupResult } from "@/lib/takamol-availability.shared";
+import { fetchTakamolAvailability } from "@/lib/takamol-availability.server";
 
 export const lookupTakamolAvailability = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -56,50 +34,5 @@ export const lookupTakamolAvailability = createServerFn({ method: "GET" })
       };
     }
 
-    const apiKey = takamolApiKey();
-    if (!apiKey) {
-      return {
-        success: false,
-        status: 503,
-        message:
-          "Takamol availability is not configured. Add TAKAMOL_API_KEY to the server environment.",
-      };
-    }
-
-    try {
-      // Transient gateway failures (429/5xx, including 529) are retried with
-      // backoff before giving up, mirroring the SVP client's retry budget.
-      const response = await fetchTakamolWithRetry(buildTakamolUrl(data), apiKey);
-
-      if (!response.ok) {
-        // The error body is never read, so release it to free the connection.
-        await releaseTakamolBody(response);
-        return {
-          success: false,
-          status: response.status,
-          message: takamolErrorMessage(response.status),
-        };
-      }
-
-      // Streaming bounded read: an oversized or malformed gateway payload
-      // becomes a 502 instead of exhausting server memory, exactly like the
-      // SVP client.
-      const payload = await readTakamolJson(response);
-      const result = unwrapTakamolResponse(payload);
-      if (!result) {
-        return {
-          success: false,
-          status: 502,
-          message: takamolErrorMessage(502),
-        };
-      }
-
-      return result;
-    } catch {
-      return {
-        success: false,
-        status: 502,
-        message: takamolErrorMessage(502),
-      };
-    }
+    return fetchTakamolAvailability(data);
   });

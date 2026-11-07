@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { fetchTakamolAvailability } from "@/lib/takamol-availability.server";
+import {
+  resolveSvpSessionAvailability,
+  svpSessionNeedsDetails,
+} from "@/lib/svp-session-availability";
 import {
   buildSvpReservationBody,
   buildSvpReservationPaymentBody,
@@ -501,7 +506,26 @@ export const listSvpExamSessions = createServerFn({ method: "POST" })
       if (!response.ok) {
         return failure(apiFailure(response.payload, "Exam sessions could not be loaded."));
       }
-      return { ok: true, data: parseSvpExamSessions(response.payload) };
+      const sessions = parseSvpExamSessions(response.payload);
+      if (!sessions.some(svpSessionNeedsDetails)) return { ok: true, data: sessions };
+      // The native targeted response can contain only opaque day tokens. The
+      // availability service resolves each session's own token, center and time.
+      // Keep this optional lookup bounded so a slow gateway cannot block booking.
+      const availability = await fetchTakamolAvailability(
+        {
+          endpoint: "sessions",
+          categoryId: String(data.categoryId),
+          city: data.city,
+          examDate: data.examDate,
+        },
+        { timeoutMs: 5_000, maxRetries: 0 },
+      );
+      return {
+        ok: true,
+        data: availability.success
+          ? resolveSvpSessionAvailability(sessions, availability.data, data)
+          : sessions,
+      };
     } catch (error) {
       if (error instanceof SvpSessionMissingError) return failure(error.message, true);
       return failure("Exam sessions could not be loaded.");
