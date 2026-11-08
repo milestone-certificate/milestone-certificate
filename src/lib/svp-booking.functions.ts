@@ -188,7 +188,7 @@ export const listSvpBookingOccupations = createServerFn({ method: "POST" })
       let firstError: string | null = null;
 
       const loadLaborPages = async (perPage: number) => {
-        for (let page = 1; page <= 4; page++) {
+        for (let page = 1; page <= 100; page++) {
           const response = await svpAuthedRequest(
             context.userId,
             "/individual_labor_space/occupations",
@@ -326,7 +326,7 @@ export const searchSvpOccupations = createServerFn({ method: "POST" })
       // 2) Local filter over the full (paginated) catalogue as a fallback.
       if (merged.size === 0) {
         const needle = data.query.toLowerCase();
-        for (let page = 1; page <= 4; page++) {
+        for (let page = 1; page <= 100; page++) {
           const response = await svpAuthedRequest(
             context.userId,
             "/individual_labor_space/occupations",

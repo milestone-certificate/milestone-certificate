@@ -13,7 +13,8 @@ const HEADERS = {
 };
 export const BANGLADESH_CODE = "BGD";
 
-export type SvpOccupation = { key: string; name: string; arabic: string };
+export type { SvpCatalogueOccupation as SvpOccupation } from "./svp-occupations.server";
+import type { SvpCatalogueOccupation as SvpOccupation } from "./svp-occupations.server";
 export type SvpCheck =
   | {
       status: "found";
@@ -27,21 +28,45 @@ export type SvpCheck =
 export const listSvpOccupations = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async (): Promise<SvpOccupation[]> => {
-    const out: SvpOccupation[] = [];
-    for (let page = 1; page <= 10; page++) {
-      const r = await fetch(`${API}/occupations?per_page=100&page=${page}&locale=en`, {
-        headers: HEADERS,
+    const { fetchSvpOccupationCatalogue } = await import("./svp-occupations.server");
+    return fetchSvpOccupationCatalogue();
+  });
+
+/** Only admins may import the complete official reference catalogue. */
+export const syncSvpOccupationCatalogue = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const role = await context.supabase.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
+    if (role.error || role.data !== true)
+      return { ok: false as const, message: "শুধু admin পেশার তালিকা sync করতে পারবেন।" };
+    try {
+      const { fetchSvpOccupationCatalogue } = await import("./svp-occupations.server");
+      const items = await fetchSvpOccupationCatalogue();
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data, error } = await supabaseAdmin.rpc("sync_svp_occupation_catalogue", {
+        _items: items,
       });
-      if (!r.ok) break;
-      const j = (await r.json()) as {
-        occupations?: { occupation_key: string; english_name: string; arabic_name: string }[];
-        pagination?: { next: number | null };
+      const stats = z
+        .object({
+          official: z.number().int(),
+          inserted: z.number().int(),
+          linked: z.number().int(),
+          unchanged: z.number().int(),
+          conflicts: z.number().int(),
+          total: z.number().int(),
+        })
+        .safeParse(data);
+      if (error || !stats.success) throw new Error("Catalogue import failed");
+      return { ok: true as const, ...stats.data };
+    } catch {
+      return {
+        ok: false as const,
+        message: "SVP পেশার সম্পূর্ণ তালিকা আনা যায়নি। আবার চেষ্টা করুন।",
       };
-      for (const o of j.occupations ?? [])
-        out.push({ key: o.occupation_key, name: o.english_name, arabic: o.arabic_name });
-      if (!j.pagination?.next) break;
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name));
   });
 
 const MAP: Record<string, "PASS" | "FAIL" | "PENDING"> = {

@@ -151,7 +151,7 @@ function SubmitJob() {
   };
   const occList = useMemo(() => {
     const q = occSearch.trim().toLowerCase();
-    return occs.filter((o) => o.active && (!q || o.name.toLowerCase().includes(q))).slice(0, 300);
+    return occs.filter((o) => o.active && (!q || o.name.toLowerCase().includes(q)));
   }, [occs, occSearch]);
   // Catalogues can finish loading after PDF extraction; never overwrite a manual choice.
   useEffect(() => {

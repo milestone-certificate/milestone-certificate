@@ -1237,6 +1237,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      sync_svp_occupation_catalogue: {
+        Args: { _items: Json };
+        Returns: Json;
+      };
       get_customer_portal: { Args: never; Returns: Json };
       verify_appointment_scan: {
         Args: {

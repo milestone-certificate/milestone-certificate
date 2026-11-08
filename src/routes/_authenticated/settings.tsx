@@ -1,9 +1,10 @@
 import { DateSelect } from "@/components/app/DateSelect";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Trash2, Check } from "lucide-react";
+import { Trash2, Check, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader, Empty, Field, NativeSelect } from "@/components/app/ui-bits";
 import { changeMyAdminEmail } from "@/lib/accounts.functions";
 import { roleSummary } from "@/lib/roles";
+import { syncSvpOccupationCatalogue } from "@/lib/svp.functions";
 import {
   occQ,
   ttcQ,
@@ -20,6 +22,7 @@ import {
   fmtDate,
   todayStr,
   useRefreshAll,
+  bn,
 } from "@/lib/data";
 
 export const Route = createFileRoute("/_authenticated/settings")({
@@ -59,7 +62,7 @@ function SettingsPage() {
           <MasterList table="ttc_centers" withDistrict />
         </TabsContent>
         <TabsContent value="occ">
-          <MasterList table="occupations" />
+          <MasterList table="occupations" allowSync={admin} />
         </TabsContent>
         <TabsContent value="rem">
           <Reminders />
@@ -83,22 +86,58 @@ function SettingsPage() {
 function MasterList({
   table,
   withDistrict,
+  allowSync,
 }: {
   table: "ttc_centers" | "occupations";
   withDistrict?: boolean;
+  allowSync?: boolean;
 }) {
   const { data: ttcRows = [] } = useQuery(ttcQ);
   const { data: occRows = [] } = useQuery(occQ);
-  const data: { id: string; name: string; district?: string | null }[] =
+  const data: { id: string; name: string; district?: string | null; svp_key?: string | null }[] =
     table === "ttc_centers" ? ttcRows : occRows;
   const refresh = useRefreshAll();
   const [name, setName] = useState("");
   const [district, setDistrict] = useState("");
+  const [search, setSearch] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const syncCatalogue = useServerFn(syncSvpOccupationCatalogue);
+  const qc = useQueryClient();
+  const visible = data.filter((r) =>
+    [r.name, r.district, r.svp_key].some((s) =>
+      s?.toLowerCase().includes(search.trim().toLowerCase()),
+    ),
+  );
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      const result = await syncCatalogue();
+      if (!result.ok) return toast.error(result.message);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["occ"] }),
+        qc.invalidateQueries({ queryKey: ["public-occ"] }),
+      ]);
+      if (result.conflicts)
+        toast.warning(`${bn(result.conflicts)}টি পেশার নাম বা কোড আলাদা আছে—যাচাই করুন।`);
+      else
+        toast.success(
+          result.inserted
+            ? `${bn(result.inserted)}টি নতুন পেশা যোগ হয়েছে।`
+            : `SVP-এর ${bn(result.official)}টি পেশা আপডেট আছে।`,
+        );
+    } catch {
+      toast.error("পেশার তালিকা sync হয়নি। আবার চেষ্টা করুন।");
+    } finally {
+      setSyncing(false);
+    }
+  };
   const add = async () => {
     if (!name.trim()) return;
     const { error } = withDistrict
-      ? await supabase.from("ttc_centers").insert({ name: name.trim(), district: district || null })
-      : await supabase.from("occupations").insert({ name: name.trim() });
+      ? await supabase
+          .from("ttc_centers")
+          .insert({ name: name.trim(), district: district || null, active: true })
+      : await supabase.from("occupations").insert({ name: name.trim(), active: true });
     if (error) return toast.error(error.code === "23505" ? "এই নাম আগেই আছে" : error.message);
     setName("");
     setDistrict("");
@@ -112,6 +151,17 @@ function MasterList({
   };
   return (
     <div className="card-surface max-w-2xl p-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="font-semibold">
+          মোট {bn(data.length)}টি {table === "occupations" ? "পেশা" : "সেন্টার"}
+        </p>
+        {table === "occupations" && allowSync && (
+          <Button variant="outline" onClick={sync} disabled={syncing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "আনা হচ্ছে…" : "SVP থেকে আপডেট"}
+          </Button>
+        )}
+      </div>
       <div className="mb-4 flex flex-wrap gap-2">
         <Input
           value={name}
@@ -129,14 +179,27 @@ function MasterList({
         )}
         <Button onClick={add}>যোগ করুন</Button>
       </div>
+      <Input
+        aria-label={table === "occupations" ? "পেশা বা SVP কোড খুঁজুন" : "সেন্টার খুঁজুন"}
+        placeholder={table === "occupations" ? "পেশা বা SVP কোড খুঁজুন" : "সেন্টার খুঁজুন"}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-3"
+      />
       <ul className="divide-y">
-        {data.map((r) => (
+        {visible.map((r) => (
           <li key={r.id} className="flex items-center justify-between py-2">
             <span>
               {r.name}{" "}
               {r.district && <span className="text-sm text-muted-foreground">· {r.district}</span>}
+              {r.svp_key && <span className="ml-2 text-xs text-muted-foreground">{r.svp_key}</span>}
             </span>
-            <Button size="icon" variant="ghost" onClick={() => del(r.id)}>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={`${r.name} মুছুন`}
+              onClick={() => del(r.id)}
+            >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
           </li>
