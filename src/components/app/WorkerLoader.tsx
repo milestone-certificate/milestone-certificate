@@ -37,7 +37,9 @@ export function PageLoader() {
 export function NavLoader() {
   const loading = useRouterState({ select: (s) => s.status === "pending" });
   const [clicked, setClicked] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
+    setHydrated(true);
     let t: number | undefined;
     const onClick = (e: MouseEvent) => {
       const el = (e.target as HTMLElement | null)?.closest("a[href^='/'], button[type='submit']");
@@ -52,7 +54,9 @@ export function NavLoader() {
       window.clearTimeout(t);
     };
   }, []);
-  if (!loading && !clicked) return null;
+  // CSR-only routes are pending on the first client render but not in the SSR shell.
+  // Keep that first render identical, then show navigation state after hydration.
+  if (!hydrated || (!loading && !clicked)) return null;
   return (
     <div className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center bg-background/40 backdrop-blur-[2px]">
       <WorkerLoader size="md" />

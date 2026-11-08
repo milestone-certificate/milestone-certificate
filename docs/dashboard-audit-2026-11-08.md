@@ -19,6 +19,7 @@ Route tests also verify that every menu destination is registered. Permission te
 
 ## Repairs
 
+- Fixed an additional issue found on the live site: the global navigation loader used different initial server/client loading states on authenticated routes. Its first hydration render is now deterministic; a real SSR browser check and hydration regression test pass.
 - Added a mobile menu containing every permitted page and logout, with a visible role label. Compact admin shortcuts and wrapped date/reminder controls prevent horizontal overflow; candidate cards and the customer question input fit 320px screens.
 - Reused the canonical settings query, fixing a dashboard crash after visiting Settings. The admin email editor now uses the current account and appears only for admins. User badges show the actual roles.
 - Clear private query data and cancel outstanding queries when the authenticated identity changes. Remount private page state for the new user and ignore late deposit responses from an unmounted page.
@@ -33,7 +34,7 @@ The schema repair is in `supabase/migrations/20261108180000_dashboard_workflow_r
 
 ## Validation and limits
 
-- Full regression suite: 370 passing cases, including 19 wallet and 9 workflow cases against disposable PostgreSQL. The additional device-local logout regression also passes (371 cases total).
+- Full regression suite: 370 passing cases, including 19 wallet and 9 workflow cases against disposable PostgreSQL. The additional device-local logout and SSR hydration regressions also pass (372 cases total).
 - TypeScript and the production Node build pass. ESLint has no errors; nine existing Fast Refresh warnings remain.
 - Production metadata confirms both submission triggers, exam history recording, immutable-history protection and customer policies.
 - Staff/provider identities were tested with local fixtures, not newly created production accounts. Booking creation, seat holds, SMS/email sending and real card/mobile payments are outside this audit. Existing SVP/gateway contract tests run as part of the suite.
