@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, LoaderCircle, RefreshCw, Wallet, X } from "lucide-react";
+import { Check, ChevronDown, LoaderCircle, RefreshCw, Wallet, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -446,50 +446,58 @@ export function WalletPanel() {
         </section>
       )}
 
-      <section className="card-surface space-y-3 p-4 sm:p-5">
-        <h2 className="text-lg font-bold">ম্যানুয়াল ডিপোজিট রিকোয়েস্ট</h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="টাকার পরিমাণ *">
-            <Input
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              inputMode="decimal"
-              placeholder="যেমন 500"
-            />
-          </Field>
-          <Field label="মাধ্যম">
-            <NativeSelect value={method} onChange={(event) => setMethod(event.target.value)}>
-              {METHODS.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {entry.label}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-          <Field label="Transaction ID / রেফারেন্স">
-            <Input
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-              placeholder="bKash TrxID / bank ref"
-            />
-          </Field>
-          <Field label="নোট">
-            <Input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="ঐচ্ছিক"
-            />
-          </Field>
+      <details className="card-surface group p-4 sm:p-5">
+        <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 font-semibold [&::-webkit-details-marker]:hidden">
+          ম্যানুয়াল ডিপোজিট রিকোয়েস্ট
+          <ChevronDown
+            className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+            aria-hidden="true"
+          />
+        </summary>
+        <div className="mt-3 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="টাকার পরিমাণ *">
+              <Input
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                inputMode="decimal"
+                placeholder="যেমন 500"
+              />
+            </Field>
+            <Field label="মাধ্যম">
+              <NativeSelect value={method} onChange={(event) => setMethod(event.target.value)}>
+                {METHODS.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field label="Transaction ID / রেফারেন্স">
+              <Input
+                value={reference}
+                onChange={(event) => setReference(event.target.value)}
+                placeholder="bKash TrxID / bank ref"
+              />
+            </Field>
+            <Field label="নোট">
+              <Input
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="ঐচ্ছিক"
+              />
+            </Field>
+          </div>
+          <Button
+            type="button"
+            onClick={() => void requestDeposit()}
+            disabled={busy || !userId || setupBlocked}
+          >
+            {busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
+            ডিপোজিট রিকোয়েস্ট পাঠান
+          </Button>
         </div>
-        <Button
-          type="button"
-          onClick={() => void requestDeposit()}
-          disabled={busy || !userId || setupBlocked}
-        >
-          {busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
-          ডিপোজিট রিকোয়েস্ট পাঠান
-        </Button>
-      </section>
+      </details>
 
       {isStaff && (
         <section className="card-surface space-y-3 p-4 sm:p-5">

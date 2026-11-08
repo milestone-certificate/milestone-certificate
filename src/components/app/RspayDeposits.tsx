@@ -1,15 +1,31 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { LoaderCircle } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  LoaderCircle,
+  LockKeyhole,
+  ShieldCheck,
+  WalletCards,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, NativeSelect } from "@/components/app/ui-bits";
 import { rspayDepositsQ, walletPaymentProfilesQ } from "@/lib/data";
 import { paymentAmount, paymentStatusLabel, rspayMethods } from "@/lib/rspay";
 import { checkRspayDeposit, getRspayAvailability, startRspayDeposit } from "@/lib/rspay.functions";
 
+const METHODS = {
+  bkash: { name: "বিকাশ", brand: "bKash" },
+  nagad: { name: "নগদ", brand: "Nagad" },
+  rocket: { name: "রকেট", brand: "Rocket" },
+  upay: { name: "উপায়", brand: "Upay" },
+};
+const QUICK_AMOUNTS = [500, 1000, 2000, 3000, 5000];
+const formatAmount = (value: number) => value.toLocaleString("en-BD", { maximumFractionDigits: 2 });
+
 export function RspayDepositForm({ userId }: { userId: string | null }) {
+  const formId = useId();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<(typeof rspayMethods)[number]>("bkash");
   const [busy, setBusy] = useState(false);
@@ -28,6 +44,7 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
     if (id && /^[a-f0-9-]{36}$/i.test(id)) setPaymentId(id);
   }, []);
   const start = async () => {
+    if (busy || !userId || availability.data?.enabled !== true) return;
     const value = paymentAmount.safeParse(Number(amount));
     if (!value.success) {
       setMessage("সঠিক টাকার পরিমাণ লিখুন (সর্বোচ্চ ১০ লক্ষ টাকা)।");
@@ -56,6 +73,9 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
       setBusy(false);
     }
   };
+  const selected = METHODS[method];
+  const parsedAmount = paymentAmount.safeParse(Number(amount));
+  if (!userId) return null;
   return (
     <>
       {paymentId && userId && (
@@ -67,43 +87,172 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
           }}
         />
       )}
-      {availability.data?.enabled && (
-        <section className="card-surface space-y-3 p-4 sm:p-5">
-          <h2 className="text-lg font-bold">অনলাইন ডিপোজিট</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="টাকার পরিমাণ *">
-              <Input
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="যেমন 500"
-                disabled={busy}
-              />
-            </Field>
-            <Field label="মাধ্যম">
-              <NativeSelect
-                value={method}
-                disabled={busy}
-                onChange={(e) => setMethod(e.target.value as typeof method)}
+      <section aria-labelledby={`${formId}-title`} className="space-y-4">
+        <div className="flex items-center gap-3 px-1">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <WalletCards className="size-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h2 id={`${formId}-title`} className="text-xl font-bold">
+              অনলাইন ডিপোজিট
+            </h2>
+            <p className="text-xs text-muted-foreground">মাধ্যম ও টাকার পরিমাণ বেছে নিন</p>
+          </div>
+        </div>
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void start();
+          }}
+        >
+          <fieldset className="card-surface min-w-0 p-4 sm:p-5" disabled={busy}>
+            <legend className="sr-only">পেমেন্ট মাধ্যম</legend>
+            <div className="mb-4 flex items-center gap-2.5" aria-hidden="true">
+              <span className="flex size-6 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">
+                1
+              </span>
+              <h3 className="font-semibold">পেমেন্ট মাধ্যম</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-3 min-[480px]:grid-cols-4">
+              {rspayMethods.map((m) => (
+                <label key={m} className="relative min-w-0 cursor-pointer">
+                  <input
+                    className="peer sr-only"
+                    type="radio"
+                    name={`${formId}-method`}
+                    value={m}
+                    checked={method === m}
+                    onChange={() => {
+                      setMethod(m);
+                      setMessage("");
+                    }}
+                  />
+                  <span className="relative flex min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-background/30 px-2 py-4 transition-colors hover:border-primary/50 peer-checked:border-primary peer-checked:bg-primary/8 peer-checked:ring-1 peer-checked:ring-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-primary peer-disabled:cursor-wait sm:min-h-36">
+                    {method === m && (
+                      <span
+                        className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                        aria-hidden="true"
+                      >
+                        <Check className="size-3.5" strokeWidth={3} />
+                      </span>
+                    )}
+                    <img
+                      src={`/images/payments/${m}.svg`}
+                      alt=""
+                      width={48}
+                      height={48}
+                      className="size-12 rounded-xl"
+                    />
+                    <span className="text-sm font-semibold">{METHODS[m].name}</span>
+                    <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground">
+                      {METHODS[m].brand.toUpperCase()}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="card-surface space-y-4 p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor={`${formId}-amount`}
+                className="flex items-center gap-2.5 font-semibold"
               >
-                {rspayMethods.map((m) => (
-                  <option key={m} value={m}>
-                    {m === "bkash" ? "bKash" : m[0].toUpperCase() + m.slice(1)}
-                  </option>
-                ))}
-              </NativeSelect>
-            </Field>
+                <span
+                  className="flex size-6 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+                  aria-hidden="true"
+                >
+                  2
+                </span>
+                জমার পরিমাণ
+              </label>
+              <span className="text-[10px] font-semibold tracking-widest text-muted-foreground">
+                BDT
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2" aria-label="দ্রুত পরিমাণ নির্বাচন">
+              {QUICK_AMOUNTS.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  disabled={busy}
+                  aria-pressed={amount !== "" && Number(amount) === value}
+                  onClick={() => {
+                    setAmount(String(value));
+                    setMessage("");
+                  }}
+                  className={`min-h-11 rounded-xl border px-1 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-wait sm:text-sm ${amount !== "" && Number(amount) === value ? "border-primary bg-primary/10 text-primary" : "border-border bg-background/20 text-foreground hover:border-primary/50 hover:bg-primary/5"}`}
+                >
+                  {formatAmount(value)}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+              <span
+                className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-xl text-muted-foreground"
+                aria-hidden="true"
+              >
+                ৳
+              </span>
+              <Input
+                id={`${formId}-amount`}
+                inputMode="decimal"
+                autoComplete="off"
+                value={amount}
+                onChange={(event) => {
+                  setAmount(event.target.value);
+                  setMessage("");
+                }}
+                placeholder="অন্য পরিমাণ লিখুন"
+                disabled={busy}
+                aria-describedby={message ? `${formId}-message` : undefined}
+                aria-invalid={Boolean(message) && !parsedAmount.success}
+                className="h-14 rounded-xl border-border bg-background/30 pl-10 text-lg font-semibold placeholder:text-sm placeholder:font-normal"
+              />
+            </div>
+            {parsedAmount.success && (
+              <div className="flex items-center justify-between gap-2 border-t border-border/70 pt-3 text-sm">
+                <span className="text-muted-foreground">ওয়ালেটে জমা হবে</span>
+                <strong className="text-lg text-primary">৳{formatAmount(parsedAmount.data)}</strong>
+              </div>
+            )}
           </div>
           {message && (
-            <p role="status" className="text-sm text-muted-foreground">
+            <p
+              id={`${formId}-message`}
+              role="status"
+              className="px-1 text-sm text-muted-foreground"
+            >
               {message}
             </p>
           )}
-          <Button onClick={() => void start()} disabled={busy || !userId}>
-            {busy && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />} পেমেন্ট করুন
+          {!availability.data?.enabled && (
+            <p role="status" className="px-1 text-xs text-muted-foreground">
+              {availability.isPending
+                ? "পেমেন্ট সেবা যাচাই হচ্ছে…"
+                : "অনলাইন পেমেন্ট আপাতত বন্ধ আছে।"}
+            </p>
+          )}
+          <Button
+            type="submit"
+            disabled={busy || availability.data?.enabled !== true}
+            className="h-13 w-full rounded-2xl text-sm font-bold shadow-lg shadow-primary/10 sm:text-base"
+          >
+            {busy ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <LockKeyhole className="size-4" />
+            )}
+            {busy ? "পেমেন্ট তৈরি হচ্ছে…" : `${selected.brand} দিয়ে পেমেন্ট করুন`}
+            {!busy && <ChevronRight className="size-4" />}
           </Button>
-        </section>
-      )}
+          <p className="flex items-center justify-center gap-1.5 px-2 text-center text-[11px] text-muted-foreground">
+            <ShieldCheck className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+            পেমেন্ট নিশ্চিত হলে ব্যালেন্স যোগ হবে।
+          </p>
+        </form>
+      </section>
     </>
   );
 }

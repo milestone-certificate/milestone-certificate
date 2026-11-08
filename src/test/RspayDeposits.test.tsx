@@ -56,13 +56,14 @@ afterEach(cleanup);
 it("offers the four documented methods and validates amount before starting checkout", async () => {
   mount(<RspayDepositForm userId="owner" />);
   const button = await screen.findByRole("button", { name: /পেমেন্ট করুন/ });
-  expect(screen.getAllByRole("option").map((o) => (o as HTMLOptionElement).value)).toEqual([
+  await waitFor(() => expect(button).toBeEnabled());
+  expect(screen.getAllByRole("radio").map((o) => (o as HTMLInputElement).value)).toEqual([
     "bkash",
     "nagad",
     "rocket",
     "upay",
   ]);
-  fireEvent.change(screen.getByPlaceholderText("যেমন 500"), { target: { value: "0" } });
+  fireEvent.change(screen.getByPlaceholderText("অন্য পরিমাণ লিখুন"), { target: { value: "0" } });
   fireEvent.click(button);
   expect(api.start).not.toHaveBeenCalled();
   expect(await screen.findByText(/সঠিক টাকার পরিমাণ/)).toBeInTheDocument();
@@ -71,8 +72,11 @@ it("offers the four documented methods and validates amount before starting chec
 it("keeps an intent ID across a retry so a lost response cannot create duplicate checkout links", async () => {
   mount(<RspayDepositForm userId="owner" />);
   const button = await screen.findByRole("button", { name: /পেমেন্ট করুন/ });
-  fireEvent.change(screen.getByPlaceholderText("যেমন 500"), { target: { value: "500.25" } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "upay" } });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.change(screen.getByPlaceholderText("অন্য পরিমাণ লিখুন"), {
+    target: { value: "500.25" },
+  });
+  fireEvent.click(screen.getByRole("radio", { name: /UPAY/ }));
   fireEvent.click(button);
   await screen.findByText("কিছুক্ষণ পরে চেষ্টা করুন।");
   fireEvent.click(button);
@@ -109,11 +113,14 @@ it("reads the real return status and refreshes wallet queries only when the data
   expect(screen.getByText(/TRX123/)).toBeInTheDocument();
 });
 
-it("hides unavailable online checkout while preserving the wallet page", async () => {
+it("shows the deposit design but prevents checkout while online payments are disabled", async () => {
   api.availability.mockResolvedValue({ enabled: false });
   mount(<RspayDepositForm userId="owner" />);
   await waitFor(() => expect(api.availability).toHaveBeenCalled());
-  expect(screen.queryByRole("button", { name: /পেমেন্ট করুন/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /পেমেন্ট করুন/ })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "500" }));
+  fireEvent.submit(screen.getByRole("button", { name: /পেমেন্ট করুন/ }).closest("form")!);
+  expect(api.start).not.toHaveBeenCalled();
 });
 
 it("shows customer, amount, method, code, transaction and status in the admin/owner record", async () => {
