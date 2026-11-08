@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
+import { useEffect, useRef, useState } from "react";
 import {
   FileUp,
   Loader2,
@@ -9,7 +8,14 @@ import {
   AlertTriangle,
   XCircle,
 } from "lucide-react";
-import { extractTicket, type TicketExtraction } from "@/lib/ticket-extract.functions";
+import { createClientOnlyFn } from "@tanstack/react-start";
+const readTicket = createClientOnlyFn(
+  async (file: File, signal: AbortSignal, progress: (message: string) => void) => {
+    const { readAppointment } = await import("@/lib/ticket-reader.client");
+    return readAppointment(file, signal, progress);
+  },
+);
+import { type TicketExtraction, MAX_TICKET_BYTES } from "@/lib/ticket-extraction";
 
 export type Stage = "idle" | "uploaded" | "processing" | "done" | "review" | "failed";
 const STAGE: Record<Stage, string> = {
@@ -20,14 +26,6 @@ const STAGE: Record<Stage, string> = {
   review: "রিভিউ প্রয়োজন",
   failed: "প্রসেসিং ব্যর্থ — ম্যানুয়ালি পূরণ করুন",
 };
-
-async function toB64(file: File) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000)
-    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin);
-}
 
 export type FieldCheck = {
   label: string;
@@ -54,32 +52,70 @@ export function SmartTicketUpload({
   setStage,
 }: {
   file: File | null;
-  onFile: (f: File) => void;
+  onFile: (f: File | null) => void;
   onExtract: (x: TicketExtraction) => void;
   checks: FieldCheck[];
   warnings: string[];
   stage: Stage;
   setStage: (s: Stage) => void;
 }) {
-  const run = useServerFn(extractTicket);
   const [url, setUrl] = useState<string | null>(null);
-
+  const [message, setMessage] = useState("");
+  const current = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!file) {
+      setUrl(null);
+      return;
+    }
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  useEffect(() => () => current.current?.abort(), []);
   async function pick(f: File | undefined) {
     if (!f) return;
-    if (f.size > 8 * 1024 * 1024) return setStage("failed");
-    onFile(f);
-    setUrl(URL.createObjectURL(f));
-    setStage("uploaded");
-    setStage("processing");
-    try {
-      const r = await run({ data: { mime: f.type, b64: await toB64(f) } });
-      if ("error" in r && r.error) {
-        setStage("failed");
-        return;
-      }
-      onExtract((r as { extraction: TicketExtraction }).extraction);
-    } catch {
+    current.current?.abort();
+    const controller = new AbortController();
+    current.current = controller;
+    setMessage("");
+    if (!f.size || f.size > MAX_TICKET_BYTES) {
+      onFile(null);
+      setMessage("৮ MB-এর মধ্যে PDF বা ছবি দিন।");
       setStage("failed");
+      return;
+    }
+    onFile(f);
+    setStage("processing");
+    const timeout = window.setTimeout(() => {
+      controller.abort();
+      if (current.current === controller) {
+        setMessage("সময় বেশি লাগছে। তথ্য নিজে পূরণ করুন অথবা আবার চেষ্টা করুন।");
+        setStage("failed");
+      }
+    }, 90_000);
+    try {
+      const result = await readTicket(f, controller.signal, (message) => {
+        if (!controller.signal.aborted && current.current === controller) setMessage(message);
+      });
+      if (controller.signal.aborted || !result) return;
+      if (result.file.type !== f.type) onFile(result.file);
+      onExtract(result.extraction);
+      setMessage("");
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (
+        error instanceof Error &&
+        (error.message.startsWith("সঠিক PDF") || error.name === "InvalidPDFException")
+      )
+        onFile(null);
+      setMessage(
+        error instanceof Error && /^(৮ MB|সঠিক PDF|একজন পরীক্ষার্থীর)/.test(error.message)
+          ? error.message
+          : "টিকিট স্বয়ংক্রিয়ভাবে পড়া যায়নি। নিচের তথ্য নিজে পূরণ করুন অথবা অন্য ফাইল দিন।",
+      );
+      setStage("failed");
+    } finally {
+      window.clearTimeout(timeout);
     }
   }
 
@@ -100,9 +136,9 @@ export function SmartTicketUpload({
     mismatch: "text-destructive",
   } as const;
   const label = {
-    verified: "Verified",
-    review: "Review Required",
-    mismatch: "Mismatch Detected",
+    verified: "মিলেছে",
+    review: "যাচাই করুন",
+    mismatch: "অমিল আছে",
   } as const;
   const Icon = { verified: CheckCircle2, review: AlertTriangle, mismatch: XCircle } as const;
   const M = Icon[match];
@@ -114,7 +150,7 @@ export function SmartTicketUpload({
         <h2 className="font-display text-lg font-bold">Smart Appointment PDF Upload</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        টিকিট PDF আপলোড করলে পরীক্ষার্থীর তথ্য নিজে থেকে ফর্মে বসবে — জমা দেওয়ার আগে যাচাই করে নিন।
+        টিকিট দিন। পাওয়া তথ্য ফর্মে বসবে—জমা দেওয়ার আগে মিলিয়ে নিন।
       </p>
       <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-primary/60 p-4 text-sm font-semibold hover:bg-muted">
         {stage === "processing" ? (
@@ -123,20 +159,23 @@ export function SmartTicketUpload({
           <FileUp className="h-5 w-5 text-primary" />
         )}
         <span className="truncate">
-          {file ? file.name : "Upload Appointment PDF – Auto Data Extraction"}
+          {file ? file.name : "PDF বা ছবি নির্বাচন করুন (সর্বোচ্চ ৮ MB)"}
         </span>
         <input
           type="file"
           accept="application/pdf,image/jpeg,image/png,image/webp"
           className="hidden"
-          disabled={stage === "processing"}
-          onChange={(e) => pick(e.target.files?.[0])}
+          aria-label="Appointment PDF বা ছবি"
+          onChange={(e) => {
+            void pick(e.target.files?.[0]);
+            e.target.value = "";
+          }}
         />
       </label>
       {stage !== "idle" && (
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className={stage === "failed" ? "text-destructive" : "text-primary"}>
-            ● {STAGE[stage]}
+            ● {stage === "processing" && message ? message : STAGE[stage]}
           </span>
           {url && (
             <a
@@ -151,13 +190,18 @@ export function SmartTicketUpload({
           )}
         </div>
       )}
+      {stage === "failed" && message && (
+        <p className="text-sm text-muted-foreground" role="status">
+          {message}
+        </p>
+      )}
       {(stage === "done" || stage === "review") && checks.length > 0 && (
         <div className="space-y-2 rounded-xl bg-muted/50 p-3 text-sm">
           <div className="flex flex-wrap justify-between gap-2 font-semibold">
-            <span>Overall Data Confidence: {overall}%</span>
+            <span>তথ্য পড়ার নিশ্চয়তা: {overall}%</span>
             <span className={`inline-flex items-center gap-1 ${color[match]}`}>
               <M className="h-4 w-4" />
-              PDF Match: {label[match]}
+              তথ্য মিল: {label[match]}
             </span>
           </div>
           <ul className="grid gap-1 sm:grid-cols-2">

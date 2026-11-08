@@ -254,15 +254,18 @@ function General() {
   const refresh = useRefreshAll();
   const [org, setOrg] = useState("");
   const [api, setApi] = useState("");
+  const [publicPayment, setPublicPayment] = useState("");
   useEffect(() => {
     if (data) {
       setOrg(data.org_name ?? "");
       setApi(data.result_api_url ?? "");
+      setPublicPayment(data.public_payment_instructions ?? "");
     }
   }, [data]);
   const save = async () => {
     const { error } = await supabase.from("settings").upsert([
       { key: "org_name", value: org },
+      { key: "public_payment_instructions", value: publicPayment },
       { key: "result_api_url", value: api },
     ]);
     if (error) return toast.error(error.message);
@@ -273,6 +276,16 @@ function General() {
     <div className="card-surface max-w-xl space-y-3 p-4">
       <Field label="প্রতিষ্ঠানের নাম">
         <Input value={org} onChange={(e) => setOrg(e.target.value)} />
+      </Field>
+      <Field label="পরীক্ষার্থীর পেমেন্ট নির্দেশনা (প্রকাশ্য)">
+        <textarea
+          value={publicPayment}
+          onChange={(e) => setPublicPayment(e.target.value)}
+          maxLength={2000}
+          rows={3}
+          className="w-full rounded-lg border bg-background p-3 text-sm"
+          placeholder="প্রতিষ্ঠান বা কর্মীদের নাম ও অভ্যন্তরীণ তথ্য ছাড়া প্রয়োজনীয় নির্দেশনা লিখুন"
+        />
       </Field>
       <Field label="অফিসিয়াল রেজাল্ট API ঠিকানা (ভবিষ্যতে সংযোগের জন্য)">
         <Input

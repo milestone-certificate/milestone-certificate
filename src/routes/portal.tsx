@@ -4,18 +4,17 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { homeForRoles } from "@/lib/roles";
-import { PortalAssistant } from "@/components/app/PortalAssistant";
-import { RESULT_LABEL, bn, fmtDate, portalQ, type PortalData, type Exam } from "@/lib/data";
+import { RESULT_LABEL, bn, fmtDate, portalQ, type PortalData, type PortalExam } from "@/lib/data";
 
 export const Route = createFileRoute("/portal")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "আমার ফলাফল ও সার্টিফিকেট | Milestone Certificate Institute" },
+      { title: "আমার ফলাফল ও সার্টিফিকেট" },
       { name: "description", content: "আপনার পরীক্ষার ফলাফল দেখুন এবং সার্টিফিকেট প্রিন্ট করুন।" },
       {
         property: "og:title",
-        content: "আমার ফলাফল ও সার্টিফিকেট | Milestone Certificate Institute",
+        content: "আমার ফলাফল ও সার্টিফিকেট",
       },
       {
         property: "og:description",
@@ -59,7 +58,7 @@ function PortalPage({ userId }: { userId: string }) {
   const { data } = useSuspenseQuery(portalQ(userId));
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [cert, setCert] = useState<Exam | null>(null);
+  const [cert, setCert] = useState<PortalExam | null>(null);
   const c = data.candidate;
   const fee = Number(c?.fee_amount ?? 0);
   const paid = data.payments
@@ -117,19 +116,6 @@ function PortalPage({ userId }: { userId: string }) {
                 instructions={data.instructions}
                 payments={data.payments}
               />
-            )}
-
-            {data.agent && (
-              <section className="rounded-2xl border bg-card p-4 text-sm">
-                <p className="font-semibold">আপনার এজেন্ট</p>
-                <p className="mt-1">
-                  {data.agent.name}
-                  {data.agent.code ? ` (${data.agent.code})` : ""} ·{" "}
-                  <a className="text-primary" href={`tel:${data.agent.mobile}`}>
-                    {data.agent.mobile}
-                  </a>
-                </p>
-              </section>
             )}
 
             <section className="space-y-3">
@@ -193,8 +179,6 @@ function PortalPage({ userId }: { userId: string }) {
             >
               অফিসিয়াল SVP রেজাল্ট যাচাই করুন ↗
             </a>
-
-            <PortalAssistant />
           </>
         )}
       </main>

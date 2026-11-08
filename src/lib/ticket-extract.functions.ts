@@ -58,10 +58,21 @@ export const extractTicket = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
-    const { data: active } = await context.supabase.rpc("is_active_account", {
+    const roles = await context.supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId);
+    if (
+      roles.error ||
+      !(roles.data ?? []).some(
+        (r) => r.role === "admin" || r.role === "staff" || r.role === "agent",
+      )
+    )
+      return { error: "অনুমতি নেই" };
+    const { data: active, error: activeError } = await context.supabase.rpc("is_active_account", {
       _user_id: context.userId,
     });
-    if (active === false) return { error: "অ্যাকাউন্ট সক্রিয় নয়" };
+    if (activeError || active !== true) return { error: "অ্যাকাউন্ট সক্রিয় নয়" };
     const head = atob(data.b64.slice(0, 8));
     const ok =
       data.mime === "application/pdf"

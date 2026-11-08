@@ -1,12 +1,21 @@
 import { useEffect, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
+import { isPublicSurface } from "@/lib/public-surface";
 import brandLogo from "@/assets/brand-logo.jpg";
 
 type Size = "sm" | "md" | "lg";
 const dims: Record<Size, string> = { sm: "h-8 w-8", md: "h-20 w-20", lg: "h-32 w-32" };
 
 /** Black-hole / vortex loader: spinning accretion rings swirl around the waving brand logo. */
-export function WorkerLoader({ size = "md", label }: { size?: Size; label?: string }) {
+export function WorkerLoader({
+  size = "md",
+  label,
+  branded = true,
+}: {
+  size?: Size;
+  label?: string;
+  branded?: boolean;
+}) {
   return (
     <span className="inline-flex flex-col items-center gap-3">
       <span className={`relative inline-block ${dims[size]}`}>
@@ -15,7 +24,7 @@ export function WorkerLoader({ size = "md", label }: { size?: Size; label?: stri
         <span className="bh-ring-rev absolute -inset-[12%] rounded-full border-2 border-transparent border-b-accent border-r-primary/60" />
         <span className="absolute -inset-1 rounded-full bg-background shadow-[0_0_30px_8px_color-mix(in_oklab,var(--primary)_55%,transparent)]" />
         <img
-          src={brandLogo}
+          src={branded ? brandLogo : "/portal-icon.svg"}
           alt=""
           className="logo-wave relative h-full w-full rounded-full object-cover"
         />
@@ -26,15 +35,17 @@ export function WorkerLoader({ size = "md", label }: { size?: Size; label?: stri
 }
 
 export function PageLoader() {
+  const path = useRouterState({ select: (s) => s.location.pathname });
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <WorkerLoader size="lg" label="লোড হচ্ছে..." />
+      <WorkerLoader size="lg" label="লোড হচ্ছে..." branded={!isPublicSurface(path)} />
     </div>
   );
 }
 
 /** Instant overlay loader: shows on any button/link click and during page navigation. */
 export function NavLoader() {
+  const path = useRouterState({ select: (s) => s.location.pathname });
   const loading = useRouterState({ select: (s) => s.status === "pending" });
   const [clicked, setClicked] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -59,7 +70,7 @@ export function NavLoader() {
   if (!hydrated || (!loading && !clicked)) return null;
   return (
     <div className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center bg-background/40 backdrop-blur-[2px]">
-      <WorkerLoader size="md" />
+      <WorkerLoader size="md" branded={!isPublicSurface(path)} />
     </div>
   );
 }

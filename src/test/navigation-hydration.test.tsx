@@ -3,7 +3,10 @@ import { renderToString } from "react-dom/server";
 import { hydrateRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ loading: false }));
-vi.mock("@tanstack/react-router", () => ({ useRouterState: () => state.loading }));
+vi.mock("@tanstack/react-router", () => ({
+  useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
+    select({ status: state.loading ? "pending" : "idle", location: { pathname: "/dashboard" } }),
+}));
 import { NavLoader } from "@/components/app/WorkerLoader";
 it("hydrates CSR-only routes even when client loading differs from the server shell", async () => {
   state.loading = false;

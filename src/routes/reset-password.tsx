@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
-import brandLogo from "@/assets/brand-logo.jpg";
 import space1 from "@/assets/space-1.webp";
 import space2 from "@/assets/space-2.webp";
 import space3 from "@/assets/space-3.webp";
@@ -13,13 +12,13 @@ const slides = [space1, space2, space3];
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
-      { title: "নতুন পাসওয়ার্ড — পরীক্ষা ব্যবস্থাপনা | Milestone Certificate Institute" },
-      { name: "description", content: "অ্যাডমিন অ্যাকাউন্টের নতুন পাসওয়ার্ড সেট করুন।" },
+      { title: "নতুন পাসওয়ার্ড — পরীক্ষা ব্যবস্থাপনা" },
+      { name: "description", content: "আপনার অ্যাকাউন্টের নতুন পাসওয়ার্ড সেট করুন।" },
       {
         property: "og:title",
-        content: "নতুন পাসওয়ার্ড — পরীক্ষা ব্যবস্থাপনা | Milestone Certificate Institute",
+        content: "নতুন পাসওয়ার্ড — পরীক্ষা ব্যবস্থাপনা",
       },
-      { property: "og:description", content: "অ্যাডমিন অ্যাকাউন্টের নতুন পাসওয়ার্ড সেট করুন।" },
+      { property: "og:description", content: "আপনার অ্যাকাউন্টের নতুন পাসওয়ার্ড সেট করুন।" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
@@ -114,14 +113,14 @@ function ResetPassword() {
               aria-hidden="true"
             />
             <img
-              src={brandLogo}
-              alt="Milestone Certificate Institute"
+              src="/portal-icon.svg"
+              alt="অ্যাকাউন্ট পোর্টাল"
               className="h-20 w-20 rounded-full border border-white/20 object-cover shadow-[0_0_50px_-10px_rgba(34,211,238,0.7)]"
             />
           </div>
           <div className="text-center">
             <p className="font-display text-lg font-bold tracking-wide text-white">
-              Milestone Certificate Institute
+              পরীক্ষার্থী পোর্টাল
             </p>
             <p className="text-xs tracking-[0.3em] text-cyan-200/70">পাসওয়ার্ড রিসেট</p>
           </div>
@@ -173,9 +172,7 @@ function ResetPassword() {
             Verification Portal
           </span>
         </div>
-        <p className="mt-3 text-center text-[11px] text-white/45">
-          © {new Date().getFullYear()} Milestone Certificate Institute · সর্বস্বত্ব সংরক্ষিত
-        </p>
+        <p className="mt-3 text-center text-[11px] text-white/45">নিরাপদ অ্যাকাউন্ট প্রবেশ</p>
       </section>
     </main>
   );

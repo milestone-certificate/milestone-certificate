@@ -6,7 +6,6 @@ import { homeForRoles } from "@/lib/roles";
 import { supabase } from "@/integrations/supabase/client";
 import { Eye, EyeOff, KeyRound, Lock, LogIn, Mail, ShieldCheck, Smartphone } from "lucide-react";
 import { checkDeviceSession, claimDeviceSession } from "@/lib/device-session";
-import brandLogo from "@/assets/brand-logo.jpg";
 import space1 from "@/assets/space-1.webp";
 import space2 from "@/assets/space-2.webp";
 import space3 from "@/assets/space-3.webp";
@@ -17,14 +16,14 @@ const mobileSchema = z.string().regex(/^01[3-9]\d{8}$/);
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "লগইন — পরীক্ষা ব্যবস্থাপনা | Milestone Certificate Institute" },
+      { title: "লগইন — পরীক্ষা ব্যবস্থাপনা" },
       {
         name: "description",
         content: "মোবাইল নম্বর ও পাসওয়ার্ড দিয়ে পরীক্ষা ব্যবস্থাপনা পোর্টালে প্রবেশ করুন।",
       },
       {
         property: "og:title",
-        content: "লগইন — পরীক্ষা ব্যবস্থাপনা | Milestone Certificate Institute",
+        content: "লগইন — পরীক্ষা ব্যবস্থাপনা",
       },
       {
         property: "og:description",
@@ -229,14 +228,14 @@ function AuthPage() {
               aria-hidden="true"
             />
             <img
-              src={brandLogo}
-              alt="Milestone Certificate Institute"
+              src="/portal-icon.svg"
+              alt="অ্যাকাউন্ট পোর্টাল"
               className="h-20 w-20 rounded-full border border-white/20 object-cover shadow-[0_0_50px_-10px_rgba(34,211,238,0.7)]"
             />
           </div>
           <div className="text-center">
             <p className="font-display text-lg font-bold tracking-wide text-white">
-              Milestone Certificate Institute
+              পরীক্ষার্থী পোর্টাল
             </p>
             <p className="text-xs tracking-[0.3em] text-cyan-200/70">স্কিল ভেরিফিকেশন পোর্টাল</p>
           </div>
@@ -374,9 +373,7 @@ function AuthPage() {
             Verification Portal
           </span>
         </div>
-        <p className="mt-3 text-center text-[11px] text-white/45">
-          © {new Date().getFullYear()} Milestone Certificate Institute · সর্বস্বত্ব সংরক্ষিত
-        </p>
+        <p className="mt-3 text-center text-[11px] text-white/45">নিরাপদ অ্যাকাউন্ট প্রবেশ</p>
       </section>
     </main>
   );

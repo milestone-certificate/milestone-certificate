@@ -1237,6 +1237,17 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      get_customer_portal: { Args: never; Returns: Json };
+      verify_appointment_scan: {
+        Args: {
+          _extraction_id: string;
+          _exam_date: string;
+          _exam_time: string;
+          _reporting_time: string | null;
+          _reason: string | null;
+        };
+        Returns: boolean;
+      };
       set_rspay_gateway_control: { Args: { _control: string; _enabled: boolean }; Returns: Json };
       wallet_rspay_begin: {
         Args: {

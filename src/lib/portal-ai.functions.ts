@@ -18,39 +18,18 @@ export const askPortalAssistant = createServerFn({ method: "POST" })
     const key = process.env.LOVABLE_API_KEY;
     if (!key) return { error: "সহকারী এখন উপলব্ধ নয়।" };
 
-    // RLS limits these reads to the signed-in customer's own records.
-    const [c, e, o, t] = await Promise.all([
-      context.supabase
-        .from("candidates")
-        .select("name,registration_no,passport_no,occupation_id,ttc_id")
-        .limit(1)
-        .maybeSingle(),
-      context.supabase
-        .from("exams")
-        .select("exam_date,exam_type,occupation_id,result,result_date,score,remarks")
-        .order("exam_date", { ascending: false }),
-      context.supabase.from("occupations").select("id,name"),
-      context.supabase.from("ttc_centers").select("id,name"),
-    ]);
-    const occ = Object.fromEntries((o.data ?? []).map((r) => [r.id, r.name]));
-    const ttc = Object.fromEntries((t.data ?? []).map((r) => [r.id, r.name]));
-    const profile = c.data
-      ? {
-          নাম: c.data.name,
-          রেজিস্ট্রেশন: c.data.registration_no,
-          পাসপোর্ট: c.data.passport_no,
-          ট্রেড: c.data.occupation_id ? occ[c.data.occupation_id] : null,
-          টিটিসি: c.data.ttc_id ? ttc[c.data.ttc_id] : null,
-        }
+    // Use the same public projection as the portal; never give the assistant internal notes or agent identities.
+    const result = await context.supabase.rpc("get_customer_portal");
+    if (result.error || !result.data) return { error: "নিজের পোর্টালে আবার লগইন করুন।" };
+    const portal = result.data as unknown as import("./data").PortalData;
+    const profile = portal.candidate
+      ? { নাম: portal.candidate.name, পাসপোর্ট: portal.candidate.passport_no }
       : null;
-    const exams = (e.data ?? []).map((x) => ({
+    const exams = portal.exams.map((x) => ({
       তারিখ: x.exam_date,
-      ধরন: x.exam_type,
-      ট্রেড: x.occupation_id ? occ[x.occupation_id] : null,
+      ট্রেড: x.occupation_id ? portal.occ[x.occupation_id] : null,
       ফল: x.result,
-      ফল_প্রকাশ: x.result_date,
       নম্বর: x.score,
-      মন্তব্য: x.remarks,
     }));
 
     const system = `তুমি একজন সহায়ক, যে পরীক্ষার্থীদের তাদের নিজের পরীক্ষার ফলাফল ও সার্টিফিকেট সম্পর্কে সংক্ষিপ্ত, ভদ্র ও পরিষ্কার বাংলায় উত্তর দাও।

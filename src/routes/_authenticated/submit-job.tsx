@@ -21,7 +21,14 @@ import {
   type Stage,
   type FieldCheck,
 } from "@/components/app/SmartTicketUpload";
-import type { TicketExtraction } from "@/lib/ticket-extract.functions";
+import {
+  appointmentDate,
+  appointmentTime,
+  matchTicketCatalogue,
+  MAX_TICKET_BYTES,
+  type TicketExtraction,
+} from "@/lib/ticket-extraction";
+import { formatSvpTime } from "@/lib/svp-time";
 
 export const Route = createFileRoute("/_authenticated/submit-job")({
   head: () => ({
@@ -40,24 +47,6 @@ export const Route = createFileRoute("/_authenticated/submit-job")({
   component: SubmitJob,
 });
 
-const BATCHES = [
-  {
-    batch: "MORNING",
-    times: [
-      { value: "10:00", label: "10:00 AM" },
-      { value: "11:00", label: "11:00 AM" },
-    ],
-  },
-  {
-    batch: "AFTERNOON",
-    times: [
-      { value: "13:00", label: "01:00 PM" },
-      { value: "14:00", label: "02:00 PM" },
-    ],
-  },
-];
-const BATCH_VALUES = BATCHES.flatMap((b) => b.times.map((t) => t.value)) as [string, ...string[]];
-
 const schema = z.object({
   passport_no: z
     .string()
@@ -74,7 +63,7 @@ const schema = z.object({
   occupation_id: z.string().uuid("পেশা নির্বাচন করুন"),
   ttc_id: z.string().uuid("TTC নির্বাচন করুন"),
   exam_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "পরীক্ষার তারিখ দিন"),
-  exam_time: z.enum(BATCH_VALUES, { message: "পরীক্ষার সময় নির্বাচন করুন" }),
+  exam_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "পরীক্ষার সময় দিন"),
   education: z.enum(["educated", "uneducated"], { message: "শিক্ষাগত যোগ্যতা নির্বাচন করুন" }),
   experience: z.enum(["yes", "no"], { message: "কাজের অভিজ্ঞতা নির্বাচন করুন" }),
 });
@@ -125,32 +114,27 @@ function SubmitJob() {
   const [stage, setStage] = useState<Stage>("idle");
   const [critOk, setCritOk] = useState(false);
   const unpaid = useMyUnpaid();
-  const locked = stage !== "done" && stage !== "review";
+  const locked = !file || stage === "processing" || stage === "uploaded";
   const set = (k: keyof typeof empty, v: string) => setF((p) => ({ ...p, [k]: v }));
   const applyOcr = (x: TicketExtraction) => {
     setOcr(x);
     setCritOk(false);
-    const lc = (v: string | null) => (v ?? "").toLowerCase();
-    const occ = x.occupation.value
-      ? (occs ?? []).find(
-          (o) =>
-            lc(o.name).includes(lc(x.occupation.value)) ||
-            lc(x.occupation.value).includes(lc(o.name)),
-        )
-      : undefined;
-    const ttc = x.center.value
-      ? (ttcs ?? []).find((t) => lc(x.center.value).includes(lc(t.name).split(/\s+/)[0] ?? "~"))
-      : undefined;
-    const time =
-      x.exam_time.value && BATCH_VALUES.includes(x.exam_time.value) ? x.exam_time.value : "";
+    if (x.candidate_count > 1) {
+      setStage("review");
+      return;
+    }
+    const occ = matchTicketCatalogue(x.occupation.value, occs);
+    const ttc = matchTicketCatalogue(x.center.value, ttcs);
+    const time = x.exam_time.value ? appointmentTime(x.exam_time.value) : null;
+    const date = x.exam_date.value ? appointmentDate(x.exam_date.value) : null;
     setF((p) => ({
       ...p,
       ...(x.candidate_name.value && { candidate_name: x.candidate_name.value.toUpperCase() }),
       ...(x.passport_no.value && {
         passport_no: x.passport_no.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
       }),
-      ...(x.exam_date.value &&
-        /^\d{4}-\d{2}-\d{2}$/.test(x.exam_date.value) && { exam_date: x.exam_date.value }),
+      ...(x.mobile?.value && { mobile: x.mobile.value }),
+      ...(date && { exam_date: date }),
       ...(time && { exam_time: time }),
       ...(occ && { occupation_id: occ.id }),
       ...(ttc && { ttc_id: ttc.id }),
@@ -169,40 +153,30 @@ function SubmitJob() {
     const q = occSearch.trim().toLowerCase();
     return occs.filter((o) => o.active && (!q || o.name.toLowerCase().includes(q))).slice(0, 300);
   }, [occs, occSearch]);
-  const DEFAULT_OCC_NAME = "Load and Unload Worker";
+  // Catalogues can finish loading after PDF extraction; never overwrite a manual choice.
   useEffect(() => {
-    if (!f.occupation_id) {
-      const d = occs.find(
-        (o) => o.active && o.name.toLowerCase() === DEFAULT_OCC_NAME.toLowerCase(),
-      );
-      if (d) setF((p) => (p.occupation_id ? p : { ...p, occupation_id: d.id }));
-    }
-  }, [occs, f.occupation_id]);
-  useEffect(() => {
-    if (!f.ttc_id) {
-      const b = active.find(
-        (t) => t.name.includes("বগুড়া") || t.name.toLowerCase().includes("bogura"),
-      );
-      if (b) setF((p) => (p.ttc_id ? p : { ...p, ttc_id: b.id }));
-    }
-  }, [active, f.ttc_id]);
+    if (!ocr || ocr.candidate_count > 1) return;
+    const occ = matchTicketCatalogue(ocr.occupation.value, occs);
+    const center = matchTicketCatalogue(ocr.center.value, ttcs);
+    setF((p) => ({
+      ...p,
+      ...(!p.occupation_id && occ ? { occupation_id: occ.id } : {}),
+      ...(!p.ttc_id && center ? { ttc_id: center.id } : {}),
+    }));
+  }, [ocr, occs, ttcs]);
 
   const ocrWarnings = ocr
     ? [
         ...ocr.ambiguities,
-        ...(ocr.candidate_count > 1
+        ...(ocr.candidate_count > 1 && !ocr.ambiguities.some((w) => /multiple|একাধিক/i.test(w))
           ? ["টিকিটে একাধিক পরীক্ষার্থী আছে — শুধু একজনের তথ্য নেওয়া হয়েছে"]
           : []),
-        ...(ocr.exam_time.value && !BATCH_VALUES.includes(ocr.exam_time.value)
-          ? [`টিকিটের সময় ${ocr.exam_time.value} তালিকায় নেই — সময় নিজে বাছাই করুন`]
-          : []),
         ...(ocr.occupation.value &&
-        !occs?.some(
-          (o) =>
-            o.id === f.occupation_id &&
-            o.name.toLowerCase().includes(ocr.occupation.value!.toLowerCase()),
-        )
-          ? [`টিকিটের পেশা: ${ocr.occupation.value} — মিলিয়ে নিন`]
+        matchTicketCatalogue(ocr.occupation.value, occs)?.id !== f.occupation_id
+          ? [`টিকিটের পেশা: ${ocr.occupation.value} — মিলিয়ে নিন`]
+          : []),
+        ...(ocr.center.value && matchTicketCatalogue(ocr.center.value, ttcs)?.id !== f.ttc_id
+          ? [`টিকিটের কেন্দ্র: ${ocr.center.value} — মিলিয়ে নিন`]
           : []),
       ]
     : [];
@@ -242,7 +216,7 @@ function SubmitJob() {
     if (!r.success) r.error.issues.forEach((i) => (errs[String(i.path[0])] ??= i.message));
     if (!file) errs.file = "Takamul Appointment Ticket আপলোড করুন";
     else if (!ALLOWED.includes(file.type)) errs.file = "শুধু PDF বা ছবি (JPG/PNG/WEBP) দিন";
-    else if (file.size > 10 * 1024 * 1024) errs.file = "ফাইল ১০MB-এর কম হতে হবে";
+    else if (file.size > MAX_TICKET_BYTES) errs.file = "ফাইল ৮ MB-এর মধ্যে হতে হবে";
     setErrors(errs);
     return Object.keys(errs).length === 0 && r.success ? r.data : null;
   };
@@ -379,7 +353,14 @@ function SubmitJob() {
       {unpaid && <UnpaidNotice />}
       <SmartTicketUpload
         file={file}
-        onFile={setFile}
+        onFile={(next) => {
+          setFile(next);
+          setF(empty);
+          setOcr(null);
+          setCritOk(false);
+          setErrors({});
+          setAgree(false);
+        }}
         onExtract={applyOcr}
         checks={checks}
         warnings={ocrWarnings}
@@ -400,7 +381,7 @@ function SubmitJob() {
       )}
 
       <section className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
-        {locked && (
+        {(!file || stage === "processing") && (
           <p className="rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
             ⬆️ প্রথমে উপরে Takamul Appointment Ticket আপলোড করুন — প্রসেসিং শেষ হলে নিচের ঘরগুলো
             স্বয়ংক্রিয়ভাবে খুলে যাবে।
@@ -411,6 +392,7 @@ function SubmitJob() {
             <div>
               <Label>Candidate Name *</Label>
               <Input
+                aria-label="Candidate Name"
                 value={f.candidate_name}
                 onChange={(e) => set("candidate_name", e.target.value.toUpperCase())}
                 maxLength={100}
@@ -420,6 +402,7 @@ function SubmitJob() {
             <div>
               <Label>Passport Number *</Label>
               <Input
+                aria-label="Passport Number"
                 value={f.passport_no}
                 onChange={(e) => set("passport_no", e.target.value.toUpperCase())}
                 maxLength={20}
@@ -431,6 +414,7 @@ function SubmitJob() {
               <Label>Mobile Number *</Label>
               <Input
                 inputMode="numeric"
+                aria-label="Mobile Number"
                 value={f.mobile}
                 onChange={(e) => set("mobile", e.target.value.replace(/\D/g, "").slice(0, 11))}
                 placeholder="01XXXXXXXXX"
@@ -443,6 +427,7 @@ function SubmitJob() {
             <div>
               <Label>TTC *</Label>
               <select
+                aria-label="TTC"
                 value={f.ttc_id}
                 onChange={(e) => set("ttc_id", e.target.value)}
                 className={selectCls}
@@ -452,14 +437,14 @@ function SubmitJob() {
                   const isBog = (n: string) =>
                     n.includes("বগুড়া") || n.toLowerCase().includes("bogura");
                   const pinned = active
-                    .filter((t) => t.sort_order < 100)
+                    .filter((t) => (t.sort_order ?? 100) < 100)
                     .sort(
                       (a, b) =>
                         (isBog(b.name) ? 1 : 0) - (isBog(a.name) ? 1 : 0) ||
                         a.sort_order - b.sort_order,
                     );
                   const rest = active
-                    .filter((t) => t.sort_order >= 100)
+                    .filter((t) => (t.sort_order ?? 100) >= 100)
                     .sort((a, b) => a.name.localeCompare(b.name, "bn"));
                   return (
                     <>
@@ -571,22 +556,15 @@ function SubmitJob() {
             </div>
             <div>
               <Label>Exam Time *</Label>
-              <select
+              <Input
+                type="time"
+                aria-label="Exam Time"
                 value={f.exam_time}
                 onChange={(e) => set("exam_time", e.target.value)}
-                className={selectCls}
-              >
-                <option value="">সময় নির্বাচন করুন</option>
-                {BATCHES.map((b) => (
-                  <optgroup key={b.batch} label={b.batch}>
-                    {b.times.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label} ({b.batch})
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              />
+              {f.exam_time && (
+                <p className="mt-1 text-sm text-muted-foreground">{formatSvpTime(f.exam_time)}</p>
+              )}
               <Err k="exam_time" />
             </div>
           </div>
@@ -711,12 +689,7 @@ function SubmitJob() {
                   ["পেশা", occs.find((o) => o.id === f.occupation_id)?.name ?? ""],
                   ["TTC", ttcs.find((t) => t.id === f.ttc_id)?.name ?? ""],
                   ["তারিখ", f.exam_date],
-                  [
-                    "সময়",
-                    BATCHES.flatMap((b) => b.times.map((t) => `${t.label} (${b.batch})`)).find(
-                      (_, i) => BATCH_VALUES[i] === f.exam_time,
-                    ) ?? "",
-                  ],
+                  ["সময়", formatSvpTime(f.exam_time) ?? ""],
                   ["টিকেট", file?.name ?? ""],
                   ...(f.skill_details ? [["নোট", f.skill_details]] : []),
                   ...(f.result_email ? [["Email", f.result_email]] : []),

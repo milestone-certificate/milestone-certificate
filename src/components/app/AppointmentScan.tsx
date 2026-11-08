@@ -1,7 +1,7 @@
 import { DateSelect } from "@/components/app/DateSelect";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
+import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ScanLine, Loader2, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { scanAppointment, verifyAppointment } from "@/lib/appointment-ocr.functions";
 import type { Extracted } from "@/lib/appointment-ocr.functions";
 
+const readTicket = createClientOnlyFn(async (file: File, signal: AbortSignal) => {
+  const { readAppointment } = await import("@/lib/ticket-reader.client");
+  return readAppointment(file, signal, () => {});
+});
 type Ext = { id: string; extracted: Extracted; confidence: number | null; warnings: unknown };
 type Saved = { name: string; passport: string; occupation: string };
 
@@ -39,20 +43,37 @@ export function AppointmentScan({
   const verify = useServerFn(verifyAppointment);
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const controller = useRef<AbortController | null>(null);
+  useEffect(() => () => controller.current?.abort(), []);
   const [ext, setExt] = useState<Ext | null>(null);
   const [f, setF] = useState({ date: "", time: "", reason: "" });
 
   async function run() {
     setBusy(true);
+    let timeout: number | undefined;
     try {
-      const r = await scan({ data: { submissionId } });
-      if ("error" in r && r.error) return toast.error(r.error);
-      const e = (r as unknown as { extraction: Ext }).extraction;
+      controller.current?.abort();
+      const abort = new AbortController();
+      controller.current = abort;
+      timeout = window.setTimeout(() => abort.abort(), 90_000);
+      const prepared = await scan({ data: { submissionId } });
+      if ("error" in prepared) return toast.error(prepared.error);
+      if (!("document" in prepared) || !prepared.document) return toast.error("টিকিট পাওয়া যায়নি।");
+      const response = await fetch(prepared.document.url, { signal: abort.signal });
+      if (!response.ok) throw new Error("Document unavailable");
+      const file = new File([await response.blob()], prepared.document.name);
+      const result = await readTicket(file, abort.signal);
+      if (!result || abort.signal.aborted) return;
+      const recorded = await scan({ data: { submissionId, extraction: result.extraction } });
+      if ("error" in recorded) return toast.error(recorded.error);
+      if (!("extraction" in recorded) || !recorded.extraction) return;
+      const e = recorded.extraction as unknown as Ext;
       setExt(e);
       setF({ date: e.extracted.exam_date ?? "", time: e.extracted.exam_time ?? "", reason: "" });
-    } catch (err) {
-      toast.error((err as Error).message);
+    } catch {
+      if (!controller.current?.signal.aborted) toast.error("টিকিট পড়া যায়নি। আবার চেষ্টা করুন।");
     } finally {
+      window.clearTimeout(timeout);
       setBusy(false);
     }
   }
@@ -74,6 +95,8 @@ export function AppointmentScan({
       toast.success("পরীক্ষার সময় যাচাই করে আপডেট হয়েছে");
       setExt(null);
       qc.invalidateQueries();
+    } catch {
+      toast.error("যাচাই সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।");
     } finally {
       setBusy(false);
     }
