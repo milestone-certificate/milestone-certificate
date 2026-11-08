@@ -193,13 +193,14 @@ describe("SVP OTP resend", () => {
   });
 });
 
-describe("SVP OTP mailbox option", () => {
+describe("SVP automatic OTP mailbox", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
   });
-  it("opens the chosen Yopmail alias only after a successful OTP request", async () => {
+  it("automatically opens the Yopmail alias without confirmation or a saved preference", async () => {
+    localStorage.setItem("svp-open-yopmail", "false");
     const replace = vi.fn();
     const close = vi.fn();
     const popup = { closed: false, opener: window, location: { replace }, close };
@@ -210,11 +211,11 @@ describe("SVP OTP mailbox option", () => {
       target: { value: "a13291235@dakbox.net" },
     });
     fireEvent.change(screen.getByLabelText("পাসওয়ার্ড"), { target: { value: "fixture-password" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: "OTP পাঠালে Yopmail খুলুন" }));
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(open).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
     await screen.findByLabelText("OTP কোড");
-    expect(open).toHaveBeenCalledWith("about:blank", "svp-otp-mail");
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
     expect(replace).toHaveBeenCalledWith("https://yopmail.com/?login=a13291235");
     expect(popup.opener).toBeNull();
     expect(screen.getByRole("link", { name: "Yopmail খুলুন" })).toHaveAttribute(
@@ -223,6 +224,7 @@ describe("SVP OTP mailbox option", () => {
     );
   });
   it("offers stored-account resend and keeps reset on the OTP step", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
     mocks.resend.mockResolvedValue({ ok: true, message: "sent" });
     render(<SvpLoginPanel otpOnly login="test@yopmail.com" />);
     fireEvent.click(screen.getByRole("button", { name: "নতুন OTP" }));

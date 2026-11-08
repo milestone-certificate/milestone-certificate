@@ -1,5 +1,5 @@
 import { svpLanguageLabel } from "@/lib/svp-mail";
-import { autoOpenSvpMail, setAutoOpenSvpMail, reserveSvpMail, svpMailboxUrl } from "@/lib/svp-mail";
+import { reserveSvpMail } from "@/lib/svp-mail";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -241,7 +241,6 @@ export function SvpBookingWizard() {
   const accounts = accountsQuery.data?.accounts ?? [];
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const reconnectMail = useRef<ReturnType<typeof reserveSvpMail>>(null);
-  const [openMail, setOpenMail] = useState(autoOpenSvpMail);
   const [reconnectLogin, setReconnectLogin] = useState<string | null>(null);
   const [forceTargeted, setForceTargeted] = useState(false);
   const [occupationLookup, setOccupationLookup] = useState(false);
@@ -1776,19 +1775,6 @@ export function SvpBookingWizard() {
           </Button>
         </div>
 
-        {accounts.some((account) => svpMailboxUrl(account.login)) && (
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={openMail}
-              onChange={(event) => {
-                setOpenMail(event.target.checked);
-                setAutoOpenSvpMail(event.target.checked);
-              }}
-            />{" "}
-            OTP পাঠালে Yopmail খুলুন
-          </label>
-        )}
         {reconnectLogin && (
           <div className="space-y-2">
             <p className="rounded-lg border border-primary/30 bg-primary/5 p-2 text-xs">

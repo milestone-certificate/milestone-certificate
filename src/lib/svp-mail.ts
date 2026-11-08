@@ -3,26 +3,11 @@ export function svpMailboxUrl(login: string): string | null {
   const match = /^([a-z0-9._+-]{1,64})@(yopmail\.(?:com|fr|net)|dakbox\.net)$/i.exec(login.trim());
   return match ? `https://yopmail.com/?login=${encodeURIComponent(match[1])}` : null;
 }
-const KEY = "svp-open-yopmail";
-export function autoOpenSvpMail(): boolean {
-  try {
-    return localStorage.getItem(KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-export function setAutoOpenSvpMail(enabled: boolean) {
-  try {
-    localStorage.setItem(KEY, String(enabled));
-  } catch {
-    /* Storage may be disabled. */
-  }
-}
 /** Reserve the tab during the click, before the asynchronous OTP request. */
 export function reserveSvpMail(login: string) {
   const url = svpMailboxUrl(login);
-  if (!url || !autoOpenSvpMail()) return null;
-  const popup = window.open("about:blank", "svp-otp-mail");
+  if (!url) return null;
+  const popup = window.open("about:blank", "_blank");
   if (popup) popup.opener = null;
   return {
     finish(sent: boolean) {

@@ -7,7 +7,7 @@ import {
   submitSvpLogin,
 } from "@/lib/svp-session.functions";
 import { svpLoginInputSchema, svpOtpInputSchema } from "@/lib/svp-session.shared";
-import { autoOpenSvpMail, setAutoOpenSvpMail, svpMailboxUrl, reserveSvpMail } from "@/lib/svp-mail";
+import { svpMailboxUrl, reserveSvpMail } from "@/lib/svp-mail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/app/ui-bits";
@@ -42,7 +42,6 @@ export function SvpLoginPanel({
   const [resending, setResending] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const busyRef = useRef(false);
-  const [openMail, setOpenMail] = useState(autoOpenSvpMail);
   const mailbox = svpMailboxUrl(form.login);
 
   useEffect(() => {
@@ -184,17 +183,6 @@ export function SvpLoginPanel({
 
       {mailbox && (
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={openMail}
-              onChange={(event) => {
-                setOpenMail(event.target.checked);
-                setAutoOpenSvpMail(event.target.checked);
-              }}
-            />{" "}
-            OTP পাঠালে Yopmail খুলুন
-          </label>
           {step === "otp" && (
             <a
               href={mailbox}
