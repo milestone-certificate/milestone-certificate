@@ -2,12 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { readBoundedJson, releaseResponseBody } from "@/lib/bounded-json";
+import { svpResultDate, svpResultSaveIssue } from "@/lib/svp-result.shared";
 
 const API = "https://svp-international-api.pacc.sa/api/v1/visitor_space";
 const HEADERS = {
   Origin: "https://svp-international.qiwa.sa",
   Referer: "https://svp-international.qiwa.sa/",
   Accept: "application/json",
+  "X-Tenant-Name": "svp-international",
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
 };
@@ -110,10 +112,14 @@ export async function querySvp(passport: string, occupationKey: string): Promise
   try {
     const r = await fetchRetry(`${API}/labors?${qs}`);
     // Bounded read: a huge or malformed gateway body becomes an empty result, not memory pressure.
-    const j = ((await readBoundedJson(r)) ?? {}) as Record<string, unknown>;
-    if (r.status === 404 || j.error)
+    const body = await readBoundedJson(r);
+    if (r.status === 404)
       return { status: "not_found", message: "SVP-তে কোনো রেজাল্ট পাওয়া যায়নি" };
     if (!r.ok) return { status: "error", message: "SVP সার্ভারে সমস্যা, পরে চেষ্টা করুন" };
+    if (!body || typeof body !== "object" || Array.isArray(body))
+      return { status: "error", message: "SVP-এর উত্তর পড়া যায়নি। আবার চেষ্টা করুন।" };
+    const j = body as Record<string, unknown>;
+    if (j.error) return { status: "not_found", message: "SVP-তে কোনো রেজাল্ট পাওয়া যায়নি" };
     const rec =
       ((j.labor ?? j.data ?? (Array.isArray(j.labors) ? j.labors[0] : null) ?? j) as Record<
         string,
@@ -134,7 +140,7 @@ export async function querySvp(passport: string, occupationKey: string): Promise
     return {
       status: "found",
       result,
-      examDate: rec.exam_date ? String(rec.exam_date).slice(0, 10) : null,
+      examDate: svpResultDate(rec.exam_date),
       applicantName: rec.applicant_name ? String(rec.applicant_name) : null,
       occupation: nameOf(rec.occupation),
     };
@@ -169,6 +175,75 @@ export const checkSvpResult = createServerFn({ method: "POST" })
     return querySvp(data.passport, data.occupationKey);
   });
 
+/** The browser selects an exam; its passport, occupation and result come from trusted sources. */
+export const checkSvpExamResult = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ examId: z.string().uuid() }).strict().parse(input))
+  .handler(
+    async ({ data, context }): Promise<{ result: SvpCheck; saved: boolean; message: string }> => {
+      const fail = (message: string) => ({
+        result: { status: "error" as const, message },
+        saved: false,
+        message,
+      });
+      const role = await context.supabase.rpc("is_staff", { _user_id: context.userId });
+      if (role.error || role.data !== true) return fail("অনুমতি নেই");
+      const { data: exam, error: examError } = await context.supabase
+        .from("exams")
+        .select("id,candidate_id,occupation_id,exam_date,exam_time,result")
+        .eq("id", data.examId)
+        .maybeSingle();
+      if (examError || !exam?.candidate_id) return fail("পরীক্ষার তথ্য পাওয়া যায়নি।");
+      const { data: candidate, error: candidateError } = await context.supabase
+        .from("candidates")
+        .select("id,passport_no,occupation_id")
+        .eq("id", exam.candidate_id)
+        .maybeSingle();
+      if (candidateError || !candidate?.passport_no)
+        return fail("পরীক্ষার্থীর পাসপোর্ট পাওয়া যায়নি।");
+      const occupationId = exam.occupation_id ?? candidate.occupation_id;
+      if (!occupationId) return fail("এই পরীক্ষার পেশা নির্বাচন করা নেই।");
+      const { data: occupation, error: occupationError } = await context.supabase
+        .from("occupations")
+        .select("svp_key")
+        .eq("id", occupationId)
+        .maybeSingle();
+      if (occupationError || !occupation?.svp_key) return fail("এই পেশার SVP কোড নেই।");
+      const passport = candidate.passport_no.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      const result = await querySvp(passport, occupation.svp_key);
+      if (result.status !== "found") return { result, saved: false, message: result.message };
+      const issue = svpResultSaveIssue(result, exam.exam_date);
+      if (issue) return { result, saved: false, message: issue };
+      if (exam.result !== "PENDING")
+        return { result, saved: false, message: "এই পরীক্ষার রেজাল্ট আগেই দেওয়া হয়েছে।" };
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const applied = await supabaseAdmin.rpc("apply_verified_svp_exam_result", {
+        _exam_id: exam.id,
+        _snapshot: {
+          candidate_id: candidate.id,
+          passport,
+          occupation_id: exam.occupation_id,
+          resolved_occupation_id: occupationId,
+          occupation_key: occupation.svp_key,
+          exam_date: exam.exam_date,
+          exam_time: exam.exam_time,
+        },
+        _result: result.result,
+        _result_date: result.examDate!,
+      });
+      const parsed = z.object({ ok: z.boolean(), reason: z.string() }).safeParse(applied.data);
+      if (applied.error || !parsed.success)
+        return { result, saved: false, message: "রেজাল্ট সংরক্ষণ হয়নি। আবার চেষ্টা করুন।" };
+      return {
+        result,
+        saved: parsed.data.ok,
+        message: parsed.data.ok
+          ? `রেজাল্ট সংরক্ষিত: ${result.result}`
+          : "পরীক্ষার তথ্য বদলেছে বা রেজাল্ট আগেই দেওয়া হয়েছে। Refresh করে দেখুন।",
+      };
+    },
+  );
+
 /** Map an SVP lookup to submission columns. A result dated before this exam day is an older attempt — never shown as the current result. */
 export function svpUpdate(res: SvpCheck, examAt: string | null, prev: string) {
   const now = new Date().toISOString();
@@ -180,15 +255,18 @@ export function svpUpdate(res: SvpCheck, examAt: string | null, prev: string) {
   const examDay = examAt
     ? new Date(new Date(examAt).getTime() + 6 * 3600_000).toISOString().slice(0, 10)
     : null;
-  const old = !!(res.examDate && examDay && res.examDate < examDay);
-  if (old)
+  if (res.result === "PENDING")
     return {
-      svp_result: "NOT_FOUND",
+      svp_result: prev === "PASS" || prev === "FAIL" ? prev : "PENDING",
+      svp_checked_at: now,
+    };
+  if (!examDay || svpResultSaveIssue(res, examDay))
+    return {
+      svp_result: prev === "PASS" || prev === "FAIL" ? prev : "NOT_FOUND",
       svp_old_result: res.result,
       svp_exam_date: res.examDate,
       svp_checked_at: now,
     };
-  if (res.result === "PENDING") return { svp_result: "PENDING", svp_checked_at: now };
   return {
     svp_result: res.result,
     svp_exam_date: res.examDate,
@@ -237,15 +315,21 @@ export const checkSubmissionSvp = createServerFn({ method: "POST" })
     if (res.status === "error") return res;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const upd = svpUpdate(res, sub.exam_at, sub.svp_result);
-    const { error: updErr } = await supabaseAdmin
+    let update = supabaseAdmin
       .from("job_submissions")
       .update(upd)
-      .eq("id", sub.id);
+      .eq("id", sub.id)
+      .eq("passport_no", sub.passport_no)
+      .eq("occupation_id", sub.occupation_id);
+    update = sub.exam_at ? update.eq("exam_at", sub.exam_at) : update.is("exam_at", null);
+    const { error: updErr, data: updated } = await update.select("id");
     if (updErr) return { status: "error", message: "রেজাল্ট সংরক্ষণ করা যায়নি" };
+    if (!updated?.length)
+      return { status: "error", message: "পরীক্ষার তথ্য বদলেছে। Refresh করে আবার দেখুন।" };
     if ("svp_old_result" in upd && upd.svp_old_result)
       return {
         status: "not_found",
-        message: `পুরোনো রেজাল্ট (${upd.svp_exam_date}): ${upd.svp_old_result} — এই পরীক্ষার রেজাল্ট এখনো আসেনি`,
+        message: `অন্য পরীক্ষার রেজাল্ট (${upd.svp_exam_date ?? "তারিখ নেই"}): ${upd.svp_old_result} — এই পরীক্ষায় সেভ করা হয়নি`,
       };
     return res;
   });

@@ -21,7 +21,9 @@ import {
   type Exam,
 } from "@/lib/data";
 import { useServerFn } from "@tanstack/react-start";
-import { checkSvpResult, listSvpOccupations } from "@/lib/svp.functions";
+import { checkSvpResult, checkSvpExamResult, listSvpOccupations } from "@/lib/svp.functions";
+import { matchingPendingSvpExams } from "@/lib/svp-result.shared";
+import type { SvpCheck } from "@/lib/svp.functions";
 import { ResultShareActions } from "@/components/app/ResultListShare";
 
 export const Route = createFileRoute("/_authenticated/results")({
@@ -49,6 +51,7 @@ function ResultsPage() {
   const candMap = useMemo(() => new Map(cands.map((c) => [c.id, c])), [cands]);
   const listOcc = useServerFn(listSvpOccupations);
   const checkFn = useServerFn(checkSvpResult);
+  const checkExamFn = useServerFn(checkSvpExamResult);
   const { data: svpOcc = [] } = useQuery({
     queryKey: ["svp-occupations"],
     queryFn: () => listOcc(),
@@ -67,15 +70,10 @@ function ResultsPage() {
     .filter((e) => e.result === "PENDING" && e.exam_date <= t)
     .sort((a, b) => a.exam_date.localeCompare(b.exam_date));
   const match = cands.find((c) => pp && c.passport_no?.toUpperCase() === pp.trim().toUpperCase());
-  const matchExam = match
-    ? exams.find((e) => e.candidate_id === match.id && e.result === "PENDING")
-    : undefined;
-  const autoKey = (occId: string | null | undefined) => {
-    const n = occName(occId)?.toLowerCase().trim();
-    return n
-      ? (svpOcc.find((o) => o.name.toLowerCase().trim() === n || o.key === n)?.key ?? "")
-      : "";
-  };
+  const matchingPending = match ? matchingPendingSvpExams(exams, match, occ ?? [], occKey) : [];
+  const matchExam = [...matchingPending].sort((a, b) => a.exam_date.localeCompare(b.exam_date))[0];
+  const autoKey = (occId: string | null | undefined) =>
+    occ?.find((o) => o.id === occId)?.svp_key ?? "";
   const filteredOcc = occFilter
     ? svpOcc.filter((o) =>
         (o.name + o.key + o.arabic).toLowerCase().includes(occFilter.toLowerCase()),
@@ -88,28 +86,53 @@ function ResultsPage() {
     setBusy(true);
     setMsg(null);
     setFound(null);
-    const res = await checkFn({ data: { passport: passport.trim(), occupationKey: key } }).catch(
-      () => ({ status: "error" as const, message: "চেক করা যায়নি" }),
-    );
-    setBusy(false);
-    if (res.status !== "found") return setMsg(res.message);
-    setFound(
-      `SVP রেজাল্ট: ${RESULT_LABEL[res.result]}${res.applicantName ? ` · ${res.applicantName}` : ""}${res.examDate ? ` · ${fmtDate(res.examDate)}` : ""}`,
-    );
-    const target = exam ?? matchExam;
-    if (res.result === "PENDING") return toast.info("SVP-তে রেজাল্ট এখনো অপেক্ষমান");
-    if (!target) return toast.info("রেজাল্ট পাওয়া গেছে, কিন্তু মিল থাকা অপেক্ষমান পরীক্ষা নেই");
-    const { error } = await supabase
-      .from("exams")
-      .update({
-        result: res.result,
-        result_date: res.examDate ?? todayStr(),
-        remarks: "SVP অটো চেক",
-      })
-      .eq("id", target.id);
-    if (error) return toast.error(error.message);
-    toast.success(`রেজাল্ট সংরক্ষিত: ${RESULT_LABEL[res.result]}`);
-    refresh();
+    const show = (res: SvpCheck) => {
+      if (res.status !== "found") {
+        setMsg(res.message);
+        return;
+      }
+      setFound(
+        `SVP রেজাল্ট: ${RESULT_LABEL[res.result]}${res.applicantName ? ` · ${res.applicantName}` : ""}${res.examDate ? ` · ${fmtDate(res.examDate)}` : ""}`,
+      );
+    };
+    try {
+      if (exam) {
+        const checked = await checkExamFn({ data: { examId: exam.id } });
+        show(checked.result);
+        if (checked.saved) {
+          toast.success(checked.message);
+          refresh();
+        } else if (checked.result.status === "found") toast.info(checked.message);
+        return;
+      }
+      const res = await checkFn({ data: { passport: passport.trim(), occupationKey: key } });
+      show(res);
+      if (res.status !== "found") return;
+      if (res.result === "PENDING") return toast.info("SVP-তে রেজাল্ট এখনো অপেক্ষমান");
+      if (!res.examDate) return toast.info("SVP পরীক্ষার তারিখ দেয়নি। সেভ করার আগে যাচাই করুন।");
+      const candidate = cands.find(
+        (c) => c.passport_no?.toUpperCase() === passport.trim().toUpperCase(),
+      );
+      const targets = candidate
+        ? matchingPendingSvpExams(exams, candidate, occ ?? [], key, res.examDate)
+        : [];
+      if (targets.length !== 1)
+        return toast.info(
+          targets.length > 1
+            ? "একই তারিখে একাধিক পরীক্ষা আছে। তালিকা থেকে নির্দিষ্ট পরীক্ষাটি চেক করুন।"
+            : "এই পেশা ও তারিখের অপেক্ষমান পরীক্ষা নেই। রেজাল্ট সেভ করা হয়নি।",
+        );
+      const checked = await checkExamFn({ data: { examId: targets[0].id } });
+      show(checked.result);
+      if (checked.saved) {
+        toast.success(checked.message);
+        refresh();
+      } else toast.info(checked.message);
+    } catch {
+      setMsg("SVP রেজাল্ট চেক করা যায়নি। আবার চেষ্টা করুন।");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const quickSet = async (e: Exam, result: "PASS" | "FAIL" | "ABSENT") => {
@@ -144,6 +167,7 @@ function ResultsPage() {
           </Field>
           <Field label="পাসপোর্ট নম্বর *">
             <Input
+              aria-label="SVP পাসপোর্ট নম্বর"
               value={pp}
               onChange={(e) => {
                 setPp(e.target.value);
@@ -159,12 +183,14 @@ function ResultsPage() {
           </Field>
           <Field label="পেশা (Occupation) *">
             <Input
+              aria-label="SVP পেশা খুঁজুন"
               value={occFilter}
               onChange={(e) => setOccFilter(e.target.value)}
               placeholder="পেশা খুঁজুন..."
               className="mb-2"
             />
             <select
+              aria-label="SVP পেশা"
               value={occKey}
               onChange={(e) => setOccKey(e.target.value)}
               className="h-10 w-full rounded-md border bg-background px-2 text-sm"

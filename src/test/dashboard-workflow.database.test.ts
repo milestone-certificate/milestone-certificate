@@ -46,6 +46,7 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
       "migrations/20261108200000_customer_portal_privacy.sql",
       "migrations/20261108201000_verified_appointment_catalog.sql",
       "migrations/20261108202000_atomic_appointment_verification.sql",
+      "migrations/20261109020000_verified_svp_exam_results.sql",
     ])
       await sql.unsafe(await readFile(new URL(`../../supabase/${f}`, import.meta.url), "utf8"));
     for (const [role, id] of Object.entries(ids)) {
@@ -352,6 +353,85 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
       ),
     ).toHaveLength(1);
     expect(await asUser("customer", (tx) => tx`SELECT * FROM ttc_centers`)).toHaveLength(0);
+  });
+  it("applies verified SVP results once and synchronizes the linked work's exam date", async () => {
+    const work = await approve((await submit()).id);
+    const [exam] = await sql`SELECT * FROM exams WHERE id=${work.exam_id}`;
+    const [candidate] = await sql`SELECT * FROM candidates WHERE id=${work.candidate_id}`;
+    const [occupation] = await sql`SELECT * FROM occupations WHERE svp_key='933301'`;
+    await sql`UPDATE job_submissions SET occupation_id=${occupation.id} WHERE id=${work.id}`;
+    const snapshot = {
+      candidate_id: candidate.id,
+      passport: candidate.passport_no,
+      occupation_id: occupation.id,
+      resolved_occupation_id: occupation.id,
+      occupation_key: "933301",
+      exam_date: exam.exam_date,
+      exam_time: exam.exam_time,
+    };
+    for (const role of ["agent", "admin"])
+      await expect(
+        asUser(
+          role,
+          (tx) =>
+            tx`SELECT apply_verified_svp_exam_result(${exam.id},${tx.json(snapshot)},'PASS',${exam.exam_date})`,
+        ),
+      ).rejects.toThrow(/permission denied/);
+    const apply = (date = exam.exam_date, snap = snapshot) =>
+      sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE service_role");
+        return (
+          await tx`SELECT apply_verified_svp_exam_result(${exam.id},${tx.json(snap)},'PASS',${date}) AS applied`
+        )[0].applied;
+      });
+    await expect(
+      asUser(
+        "admin",
+        (tx) =>
+          tx`UPDATE exams SET result='FAIL',result_date='2026-11-04',remarks='SVP অটো চেক' WHERE id=${exam.id}`,
+      ),
+    ).rejects.toThrow(/another exam date/);
+    await expect(apply("2026-11-04")).rejects.toThrow(/date/);
+    expect(await apply(exam.exam_date, { ...snapshot, occupation_key: "999999" })).toMatchObject({
+      ok: false,
+      reason: "changed",
+    });
+    expect((await sql`SELECT count(*)::int AS n FROM results`)[0].n).toBe(0);
+    expect(await apply()).toMatchObject({ ok: true });
+    expect(
+      (await sql`SELECT svp_result,svp_exam_date FROM job_submissions WHERE id=${work.id}`)[0],
+    ).toMatchObject({ svp_result: "PASS", svp_exam_date: exam.exam_date });
+    expect(await apply()).toMatchObject({ ok: false, reason: "already_complete" });
+    expect((await sql`SELECT count(*)::int AS n FROM results`)[0].n).toBe(1);
+  });
+  it("refuses a rescheduled exam or changed passport after the SVP lookup snapshot", async () => {
+    const work = await approve((await submit()).id);
+    const [occupation] = await sql`SELECT * FROM occupations WHERE svp_key='933301'`;
+    await sql`UPDATE job_submissions SET occupation_id=${occupation.id} WHERE id=${work.id}`;
+    const [exam] = await sql`SELECT * FROM exams WHERE id=${work.exam_id}`;
+    const snapshot = {
+      candidate_id: work.candidate_id,
+      passport: "A1234567",
+      occupation_id: occupation.id,
+      resolved_occupation_id: occupation.id,
+      occupation_key: "933301",
+      exam_date: exam.exam_date,
+      exam_time: exam.exam_time,
+    };
+    await sql`UPDATE job_submissions SET exam_at='2026-11-24T03:00:00Z' WHERE id=${work.id}`;
+    expect(
+      (
+        await sql`SELECT apply_verified_svp_exam_result(${exam.id},${sql.json(snapshot)},'PASS',${exam.exam_date}) AS applied`
+      )[0].applied,
+    ).toMatchObject({ ok: false, reason: "changed" });
+    const [changed] = await sql`SELECT * FROM exams WHERE id=${exam.id}`;
+    await sql`UPDATE candidates SET passport_no='A9999999' WHERE id=${work.candidate_id}`;
+    expect(
+      (
+        await sql`SELECT apply_verified_svp_exam_result(${exam.id},${sql.json({ ...snapshot, exam_date: changed.exam_date })},'PASS',${changed.exam_date}) AS applied`
+      )[0].applied,
+    ).toMatchObject({ ok: false, reason: "changed" });
+    expect((await sql`SELECT count(*)::int AS n FROM results`)[0].n).toBe(0);
   });
   it("verifies appointments atomically with the linked exam and requires an explicit correction reason", async () => {
     const work = await approve((await submit()).id);
