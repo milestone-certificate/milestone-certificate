@@ -48,7 +48,8 @@ export function appointmentDate(value: string): string | null {
     d = 0;
   const iso = /\b(20\d{2})[-/]([01]?\d)[-/]([0-3]?\d)\b/.exec(s);
   const local = /\b([0-3]?\d)[/.-]([01]?\d)[/.-](20\d{2})\b/.exec(s);
-  const words = /\b(\d{1,2})[\s-]+([A-Za-z]+)[\s,-]+(20\d{2})\b/.exec(s);
+  const words = /\b(\d{1,2})(?:st|nd|rd|th)?[\s-]+([A-Za-z]+)[\s,-]+(20\d{2})\b/i.exec(s);
+  const monthFirst = /\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?[\s,]+(20\d{2})\b/i.exec(s);
   if (iso) [, y, m, d] = iso.map(Number);
   else if (local) [, d, m, y] = local.map(Number);
   else if (words) {
@@ -58,6 +59,13 @@ export function appointmentDate(value: string): string | null {
         words[2].slice(0, 3).toLowerCase(),
       ) + 1;
     y = Number(words[3]);
+  } else if (monthFirst) {
+    d = Number(monthFirst[2]);
+    m =
+      ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(
+        monthFirst[1].slice(0, 3).toLowerCase(),
+      ) + 1;
+    y = Number(monthFirst[3]);
   } else return null;
   const date = new Date(Date.UTC(y, m - 1, d));
   return y >= 2000 &&
@@ -86,7 +94,8 @@ const labels = {
   candidate_name:
     "(?:candidate(?:\\s+full)?\\s+name|applicant(?:\\s+full)?\\s+name|full\\s+name|name)",
   passport_no: "(?:passport\\s*(?:number|no[.]?|#))",
-  occupation: "(?:occupation(?:\\s+name)?|trade(?:\\s+name)?|profession|job\\s+title)",
+  occupation:
+    "(?:occupation(?!\\s+code\\b)(?:\\s+name)?|trade(?:\\s+name)?|profession|job\\s+title)",
   exam_date: "(?:exam(?:ination)?\\s+date|test\\s+date|appointment\\s+date|scheduled\\s+date|date)",
   exam_time:
     "(?:exam(?:ination)?\\s+(?:start\\s+)?time|test\\s+(?:start\\s+)?time|appointment\\s+time|start\\s+time|time)",
@@ -97,6 +106,17 @@ const labels = {
   mobile: "(?:(?:mobile|phone|contact)(?:\\s+(?:number|no[.]?))?)",
 } as const;
 const labelStart = new RegExp(`^(?:${Object.values(labels).join("|")})\\s*(?::|：|$)`, "i");
+/** Column headings are never field values, even when PDF extraction joins them. */
+export function isTicketHeading(value: string): boolean {
+  const clean = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!clean) return false;
+  return /^(?:(?:name|full name|candidate name|passport number|passport no|nationality|occupation code|occupation|test language|exam date|test date|exam time|test time|test center|test centre|test taker|test details|instructions|important notice)\s*)+$/.test(
+    clean,
+  );
+}
 function printedValue(lines: string[], pattern: string): string | null {
   const re = new RegExp(`^${pattern}\\s*(?::|：)?\\s*(.*)$`, "i");
   for (let i = 0; i < lines.length; i++) {
@@ -114,7 +134,7 @@ function printedValue(lines: string[], pattern: string): string | null {
     // Some PDF rows contain two labelled columns.
     const later = new RegExp(`\\s{2,}(?=${Object.values(labels).join("|")})`, "i");
     v = v.split(later)[0]?.trim();
-    if (v && !labelStart.test(v)) return v.slice(0, 500);
+    if (v && !labelStart.test(v) && !isTicketHeading(v)) return v.slice(0, 500);
   }
   return null;
 }

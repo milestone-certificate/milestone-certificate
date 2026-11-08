@@ -514,6 +514,7 @@ function SubmitJob() {
                 return (
                   <div className="grid grid-cols-[1fr_1.6fr_1.2fr] gap-2">
                     <select
+                      aria-label="Exam Day"
                       value={day || ""}
                       onChange={(e) => upd(year, month, Number(e.target.value))}
                       className={selectCls}
@@ -526,6 +527,7 @@ function SubmitJob() {
                       ))}
                     </select>
                     <select
+                      aria-label="Exam Month"
                       value={month}
                       onChange={(e) => upd(year, Number(e.target.value), day)}
                       className={selectCls}
@@ -537,6 +539,7 @@ function SubmitJob() {
                       ))}
                     </select>
                     <select
+                      aria-label="Exam Year"
                       value={year}
                       onChange={(e) => upd(Number(e.target.value), month, day)}
                       className={selectCls}

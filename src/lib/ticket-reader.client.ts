@@ -1,3 +1,4 @@
+import { parseAppointmentLayout, type TicketPage, type TicketTextItem } from "./ticket-layout";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
   emptyTicket,
@@ -17,7 +18,7 @@ async function recognize(
   image: Blob | HTMLCanvasElement,
   signal: AbortSignal,
   progress: ReadProgress,
-): Promise<{ text: string; confidence: number }> {
+): Promise<{ text: string; confidence: number; items: TicketTextItem[] }> {
   const { createWorker } = await import("tesseract.js");
   stopped(signal);
   progress("ছবির লেখা পড়ার প্রস্তুতি চলছে…");
@@ -47,10 +48,23 @@ async function recognize(
     );
     worker = await Promise.race([creating, cancelled]);
     stopped(signal);
-    const result = await Promise.race([worker.recognize(image), cancelled]);
+    const result = await Promise.race([worker.recognize(image, {}, { blocks: true }), cancelled]);
     stopped(signal);
     return {
       text: result.data.text,
+      items: (result.data.blocks ?? []).flatMap((block) =>
+        block.paragraphs.flatMap((paragraph) =>
+          paragraph.lines.flatMap((line) =>
+            line.words.map((word) => ({
+              text: word.text,
+              x: word.bbox.x0,
+              y: -line.bbox.y0,
+              width: word.bbox.x1 - word.bbox.x0,
+              height: line.bbox.y1 - line.bbox.y0,
+            })),
+          ),
+        ),
+      ),
       confidence: Math.min(0.98, Math.max(0, result.data.confidence / 100)),
     };
   } finally {
@@ -76,7 +90,12 @@ export async function readAppointment(
       : new File([file], file.name, { type: mime, lastModified: file.lastModified });
   if (mime !== "application/pdf") {
     const result = await recognize(normalized, signal, progress);
-    return { file: normalized, extraction: parseAppointmentText(result.text, result.confidence) };
+    return {
+      file: normalized,
+      extraction: result.items.length
+        ? parseAppointmentLayout([{ items: result.items }], result.confidence).extraction
+        : parseAppointmentText(result.text, result.confidence),
+    };
   }
   progress("PDF-এর লেখা পড়া হচ্ছে…");
   const pdfjs = await import("pdfjs-dist");
@@ -97,42 +116,35 @@ export async function readAppointment(
     const pdf = await task.promise;
     stopped(signal);
     if (pdf.numPages > 10) throw new Error("একজন পরীক্ষার্থীর সর্বোচ্চ ১০ পৃষ্ঠার টিকিট দিন।");
-    const pages = [];
+    const pages: TicketPage[] = [];
     for (let index = 1; index <= pdf.numPages; index++) {
       const page = await pdf.getPage(index);
       const content = await page.getTextContent();
       stopped(signal);
-      // Preserve PDF rows and label/value columns rather than joining unrelated fields.
-      const rows: { y: number; items: { x: number; text: string }[] }[] = [];
-      for (const item of content.items) {
-        if (!("str" in item) || !item.str.trim()) continue;
-        const y = item.transform[5];
-        let row = rows.find((r) => Math.abs(r.y - y) < 3);
-        if (!row) {
-          row = { y, items: [] };
-          rows.push(row);
-        }
-        row.items.push({ x: item.transform[4], text: item.str });
-      }
-      pages.push(
-        rows
-          .sort((a, b) => b.y - a.y)
-          .map((r) =>
-            r.items
-              .sort((a, b) => a.x - b.x)
-              .map((i) => i.text)
-              .join("  "),
-          )
-          .join("\n"),
-      );
+      pages.push({
+        items: content.items.flatMap((item) =>
+          "str" in item && item.str.trim()
+            ? [
+                {
+                  text: item.str,
+                  x: item.transform[4],
+                  y: item.transform[5],
+                  width: item.width,
+                  height: item.height,
+                },
+              ]
+            : [],
+        ),
+      });
     }
-    const text = pages.join("\n");
-    const extracted = parseAppointmentText(text);
-    if (hasAppointmentIdentity(extracted) || extracted.candidate_count > 1)
+    const parsed = parseAppointmentLayout(pages);
+    const extracted = parsed.extraction;
+    if (hasAppointmentIdentity(extracted) || extracted.candidate_count > 1 || parsed.hasConflicts)
       return { file: normalized, extraction: extracted };
     // Rasterize a scan at a bounded resolution for OCR. Reuse one worker per page and release it.
     let scanText = "",
       confidence = 0.98;
+    const scanPages: TicketPage[] = [];
     for (let index = 1; index <= Math.min(pdf.numPages, 3); index++) {
       stopped(signal);
       const page = await pdf.getPage(index);
@@ -147,9 +159,12 @@ export async function readAppointment(
       const result = await recognize(canvas, signal, progress);
       canvas.width = canvas.height = 0;
       scanText += `\n${result.text}`;
+      scanPages.push({ items: result.items });
       confidence = Math.min(confidence, result.confidence);
     }
-    const scanned = parseAppointmentText(scanText, confidence);
+    const scanned = scanPages.some((page) => page.items.length)
+      ? parseAppointmentLayout(scanPages, confidence).extraction
+      : parseAppointmentText(scanText, confidence);
     const combined = emptyTicket();
     for (const key of [
       "candidate_name",
