@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/svp-booking.functions", () => ({
   getSvpReservationDetail: mocks.detail,
+  getSvpOccupationById: vi.fn().mockResolvedValue({ ok: true, data: { categoryId: 159 } }),
   listSvpRescheduleDates: mocks.dates,
   listSvpExamSessions: mocks.sessions,
   rescheduleSvpBooking: mocks.reschedule,
@@ -173,8 +174,8 @@ function renderPanel(props?: {
 }
 
 async function openDates() {
-  if (screen.queryByRole("dialog", { name: "Available exam dates" })) return;
-  const field = await screen.findByRole("button", { name: "Exam date" });
+  if (screen.queryByRole("dialog", { name: "খালি তারিখ" })) return;
+  const field = await screen.findByRole("button", { name: "পরীক্ষার তারিখ" });
   await waitFor(() => expect(field).toBeEnabled());
   fireEvent.click(field);
 }
@@ -186,7 +187,7 @@ async function pickRescheduleDate() {
 
 async function changeMonth(value: string) {
   await openDates();
-  fireEvent.change(await screen.findByLabelText("Month to check"), { target: { value } });
+  fireEvent.change(await screen.findByLabelText("মাস"), { target: { value } });
 }
 
 describe("SVP reschedule panel", () => {
@@ -214,24 +215,24 @@ describe("SVP reschedule panel", () => {
     expect(within(center).getByText(centerName)).toBeInTheDocument();
     expect(within(center).getByText("11:00 AM · সকাল – 12:00 PM · দুপুর")).toBeInTheDocument();
     expect(within(center).getByText("4")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Available exam dates" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "খালি তারিখ" })).not.toBeInTheDocument();
     await waitFor(() => expect(center).toHaveAttribute("aria-pressed", "true"));
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled();
     expect(mocks.reschedule).not.toHaveBeenCalled();
   });
 
   it("reschedules through the real SVP endpoint with the chosen session and language", async () => {
     renderPanel();
 
-    expect(await screen.findByText(/Current session:/)).toBeInTheDocument();
-    expect(await screen.findByText(/1 reschedule\(s\) left/)).toBeInTheDocument();
+    expect(await screen.findByText(/বর্তমান সময়:/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 বার বাকি/)).toBeInTheDocument();
 
-    fireEvent.change(await screen.findByLabelText("New city *"), {
+    fireEvent.change(await screen.findByLabelText("শহর *"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
 
     await waitFor(() =>
       expect(mocks.reschedule).toHaveBeenCalledWith({
@@ -244,7 +245,7 @@ describe("SVP reschedule panel", () => {
         },
       }),
     );
-    expect(await screen.findByText("Appointment rescheduled")).toBeInTheDocument();
+    expect(await screen.findByText("তারিখ বদল হয়েছে")).toBeInTheDocument();
   });
 
   it("holds every date token and passes the assigned-session inputs in load-balancer mode", async () => {
@@ -275,12 +276,12 @@ describe("SVP reschedule panel", () => {
     });
     renderPanel({ loadBalancer: true });
 
-    fireEvent.change(await screen.findByLabelText("New city *"), {
+    fireEvent.change(await screen.findByLabelText("শহর *"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
     fireEvent.click((await screen.findAllByRole("button", { name: /Dhaka Center/ }))[0]!);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
 
     await waitFor(() =>
       expect(mocks.reschedule).toHaveBeenCalledWith({
@@ -295,14 +296,16 @@ describe("SVP reschedule panel", () => {
         },
       }),
     );
-    expect(await screen.findByText("Appointment rescheduled")).toBeInTheDocument();
+    expect(await screen.findByText("তারিখ বদল হয়েছে")).toBeInTheDocument();
   });
 
   it("blocks rescheduling when SVP marks the reservation as not reschedulable", async () => {
     renderPanel({ canBeRescheduled: false });
 
-    expect(await screen.findByRole("button", { name: "Reschedule unavailable" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Confirm reschedule" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "এখন তারিখ বদলানো যাবে না" })).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }),
+    ).not.toBeInTheDocument();
   });
 
   it("reports the appointment SVP stored even when it differs from the picked session", async () => {
@@ -313,16 +316,16 @@ describe("SVP reschedule panel", () => {
     const onDone = vi.fn();
     renderPanel({ onDone });
 
-    fireEvent.change(await screen.findByLabelText("New city *"), {
+    fireEvent.change(await screen.findByLabelText("শহর *"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
 
     // The hold assigned a 15:00 session, so the panel must not report the picked 11:00.
     expect(await screen.findByText(/3:00 PM · দুপুর/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "ঠিক আছে" }));
     expect(onDone).toHaveBeenCalledWith({
       startAt: "2026-12-01 15:00:00",
       city: "Dhaka",
@@ -333,9 +336,11 @@ describe("SVP reschedule panel", () => {
   it("stops before the form when SVP reports no reschedules are left", async () => {
     renderPanel({ rescheduleTimes: 0 });
 
-    expect(await screen.findByRole("button", { name: "Reschedule unavailable" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Confirm reschedule" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("New city *")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "এখন তারিখ বদলানো যাবে না" })).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("শহর *")).not.toBeInTheDocument();
   });
 
   it("does not invent a reschedule count when SVP did not answer the constraints call", async () => {
@@ -343,9 +348,9 @@ describe("SVP reschedule panel", () => {
 
     // Unknown quota must not read as "0 reschedule(s) left", and the form stays usable
     // because the server is the source of truth for the gate.
-    expect(await screen.findByText(/Current session:/)).toBeInTheDocument();
+    expect(await screen.findByText(/বর্তমান সময়:/)).toBeInTheDocument();
     expect(screen.queryByText(/reschedule\(s\) left/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeInTheDocument();
   });
 
   it("asks the agent to reconnect when SVP reports an expired session", async () => {
@@ -357,16 +362,16 @@ describe("SVP reschedule panel", () => {
     const onReconnect = vi.fn();
     renderPanel({ onReconnect });
 
-    fireEvent.change(await screen.findByLabelText("New city *"), {
+    fireEvent.change(await screen.findByLabelText("শহর *"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
 
     // The booking flow opens the login panel for an expired session; reschedule must too.
     await waitFor(() => expect(onReconnect).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText("Appointment rescheduled")).not.toBeInTheDocument();
+    expect(screen.queryByText("তারিখ বদল হয়েছে")).not.toBeInTheDocument();
   });
 });
 
@@ -393,7 +398,7 @@ describe("SVP site-based reschedule", () => {
     });
     renderPanel({ isTargeted: false });
 
-    const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
+    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
     expect(citySelect).toHaveValue("");
     expect(mocks.takamol).toHaveBeenCalledWith({ data: { endpoint: "cities", categoryId: "159" } });
     fireEvent.change(citySelect, { target: { value: "Dhaka" } });
@@ -412,7 +417,7 @@ describe("SVP site-based reschedule", () => {
 
     const realSlot = await screen.findByRole("button", { name: /11:30/ });
     expect(realSlot).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled();
     expect(screen.queryByText(/no matching site IDs/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/no row could be matched uniquely/i)).not.toBeInTheDocument();
   });
@@ -427,13 +432,13 @@ describe("SVP site-based reschedule", () => {
     );
     renderPanel({ isTargeted: false });
 
-    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
     expect(
       screen.queryByText("Takamol city endpoint unavailable", { exact: false }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect((await screen.findByLabelText("New city *")) as HTMLSelectElement).toHaveValue("");
-    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
+    expect((await screen.findByLabelText("শহর *")) as HTMLSelectElement).toHaveValue("");
+    expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
   });
 
@@ -448,14 +453,14 @@ describe("SVP site-based reschedule", () => {
     );
     renderPanel({ isTargeted: false, onReconnect });
 
-    const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
+    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
     await waitFor(() => expect(citySelect).toHaveValue(""));
-    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
     expect(
       screen.queryByText("Takamol lookup is not authorized", { exact: false }),
     ).not.toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reconnect to SVP" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "সংযোগ করুন" })).not.toBeInTheDocument();
     expect(onReconnect).not.toHaveBeenCalled();
   });
 
@@ -469,11 +474,11 @@ describe("SVP site-based reschedule", () => {
     );
     renderPanel({ isTargeted: false });
 
-    const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
+    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
     await waitFor(() => expect(citySelect).toHaveValue(""));
     expect(screen.queryByText(/Takamol returned no cities/)).not.toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
   });
 
   it("checks a manually entered city with Takamol after its city-list endpoint fails", async () => {
@@ -486,14 +491,14 @@ describe("SVP site-based reschedule", () => {
     );
     renderPanel({ isTargeted: false });
 
-    const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
-    expect(await screen.findByRole("button", { name: "Retry city list" })).toBeInTheDocument();
+    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
+    expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
     expect(screen.queryByText(/HTTP 404/)).not.toBeInTheDocument();
     fireEvent.change(citySelect, { target: { value: "__manual_city__" } });
-    fireEvent.change(await screen.findByLabelText("Manual city name"), {
+    fireEvent.change(await screen.findByLabelText("শহরের নাম"), {
       target: { value: "  Chattogram  " },
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Check this city" }));
+    fireEvent.click(await screen.findByRole("button", { name: "খুঁজুন" }));
 
     await waitFor(() => expect(citySelect).toHaveValue("Chattogram"));
     expect(mocks.takamol).toHaveBeenCalledWith({
@@ -520,12 +525,12 @@ describe("SVP site-based reschedule", () => {
     });
     renderPanel({ isTargeted: false });
 
-    const citySelect = (await screen.findByLabelText("New city *")) as HTMLSelectElement;
+    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
     fireEvent.change(citySelect, { target: { value: "Dhaka" } });
     await changeMonth("2026-12");
     await pickRescheduleDate();
 
-    expect(await screen.findByText("Test center")).toBeInTheDocument();
+    expect(await screen.findByText("পরীক্ষাকেন্দ্র")).toBeInTheDocument();
     const morning = await screen.findByRole("button", { name: /Site A.*10:00/ });
     const afternoon = await screen.findByRole("button", { name: /Site A.*2:00 PM/ });
     expect(morning).toBeInTheDocument();
@@ -533,18 +538,16 @@ describe("SVP site-based reschedule", () => {
     expect(screen.queryByRole("button", { name: /Show only|Show all/ })).not.toBeInTheDocument();
     fireEvent.click(afternoon);
     expect(afternoon).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled();
     expect(mocks.siteReschedule).not.toHaveBeenCalled();
   });
 
   it("holds a slot and reschedules with the prometric exam id and site", async () => {
     renderPanel({ isTargeted: false });
 
-    expect(
-      await screen.findByRole("heading", { name: "Reschedule appointment" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "তারিখ বদল" })).toBeInTheDocument();
     expect(screen.queryByText(/site-based flow/)).not.toBeInTheDocument();
-    const citySelect = await screen.findByLabelText("New city *");
+    const citySelect = await screen.findByLabelText("শহর *");
     await waitFor(() => expect((citySelect as HTMLSelectElement).disabled).toBe(false));
     fireEvent.change(citySelect, {
       target: { value: "Dhaka" },
@@ -562,7 +565,7 @@ describe("SVP site-based reschedule", () => {
     );
     await pickRescheduleDate();
     expect(await screen.findByRole("button", { name: /10:00/ })).toBeEnabled();
-    const confirmButton = screen.getByRole("button", { name: "Confirm reschedule" });
+    const confirmButton = screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" });
     await waitFor(() => expect(confirmButton).toBeEnabled());
     fireEvent.click(confirmButton);
 
@@ -582,7 +585,7 @@ describe("SVP site-based reschedule", () => {
         },
       }),
     );
-    expect(await screen.findByText("Appointment rescheduled")).toBeInTheDocument();
+    expect(await screen.findByText("তারিখ বদল হয়েছে")).toBeInTheDocument();
   });
 
   it("submits the selected SVP slot ID even when Takamol rows arrive in a different order", async () => {
@@ -649,13 +652,13 @@ describe("SVP site-based reschedule", () => {
     });
     renderPanel({ isTargeted: false });
 
-    fireEvent.change(await screen.findByLabelText("New city *"), {
+    fireEvent.change(await screen.findByLabelText("শহর *"), {
       target: { value: "Dhaka" },
     });
     await changeMonth("2026-12");
     await pickRescheduleDate();
     fireEvent.click(await screen.findByRole("button", { name: /11:00/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
 
     await waitFor(() =>
       expect(mocks.siteReschedule).toHaveBeenCalledWith({
@@ -673,15 +676,15 @@ describe("reschedule error recovery and language preservation", () => {
   it("keeps a recoverable reservation panel without showing network errors", async () => {
     mocks.detail.mockRejectedValueOnce(new Error("Network unavailable"));
     renderPanel();
-    expect(await screen.findByRole("button", { name: "Retry reservation" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Reschedule appointment" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "আবার দেখুন" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "তারিখ বদল" })).toBeInTheDocument();
     expect(
       screen.queryByText(/Network unavailable|Reservation could not be loaded/),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry reservation" }));
-    expect(await screen.findByLabelText("New city *")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "বন্ধ করুন" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "আবার দেখুন" }));
+    expect(await screen.findByLabelText("শহর *")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(mocks.detail).toHaveBeenCalledTimes(2);
     expect(mocks.reschedule).not.toHaveBeenCalled();
@@ -695,12 +698,12 @@ describe("reschedule error recovery and language preservation", () => {
         data: { ...detail, languageCode: "LOABB", languages },
       });
       renderPanel();
-      expect(await screen.findByLabelText("Exam language")).toHaveValue("LOABB");
+      expect(await screen.findByLabelText("পরীক্ষার ভাষা")).toHaveValue("LOABB");
       expect(screen.getByRole("option", { name: "LOABB" })).toHaveValue("LOABB");
-      fireEvent.change(screen.getByLabelText("New city *"), { target: { value: "Dhaka" } });
+      fireEvent.change(screen.getByLabelText("শহর *"), { target: { value: "Dhaka" } });
       await pickRescheduleDate();
       fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
-      fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+      fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
       await waitFor(() =>
         expect(mocks.reschedule).toHaveBeenCalledWith({
           data: expect.objectContaining({ languageCode: "LOABB" }),
@@ -711,7 +714,7 @@ describe("reschedule error recovery and language preservation", () => {
 });
 
 async function selectAvailableReschedule(isTargeted: boolean) {
-  fireEvent.change(await screen.findByLabelText("New city *"), { target: { value: "Dhaka" } });
+  fireEvent.change(await screen.findByLabelText("শহর *"), { target: { value: "Dhaka" } });
   if (!isTargeted) {
     await changeMonth("2026-12");
   }
@@ -720,7 +723,7 @@ async function selectAvailableReschedule(isTargeted: boolean) {
     fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
   }
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled(),
   );
 }
 
@@ -736,8 +739,8 @@ describe.each([true, false])("reschedule selection refresh (targeted=%s)", (isTa
         queryKey: [isTargeted ? "svp-reschedule-sessions" : "svp-reschedule-slots"],
       });
     });
-    expect(await screen.findByText("No sessions available.")).toBeInTheDocument();
-    const confirm = screen.getByRole("button", { name: "Confirm reschedule" });
+    expect(await screen.findByText("এখন কোনো আসন নেই।")).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" });
     expect(confirm).toBeDisabled();
     fireEvent.click(confirm);
     expect(mocks.reschedule).not.toHaveBeenCalled();
@@ -763,12 +766,12 @@ describe.each([true, false])("reschedule selection refresh (targeted=%s)", (isTa
           queryKey: [isTargeted ? "svp-reschedule-sessions" : "svp-reschedule-slots"],
         });
       });
-      expect(await screen.findByRole("button", { name: "Retry sessions" })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "আবার দেখুন" })).toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(
         screen.queryByText(/Network unavailable|Availability unavailable/),
       ).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeDisabled();
       expect(mocks.reschedule).not.toHaveBeenCalled();
       expect(mocks.siteReschedule).not.toHaveBeenCalled();
     },
@@ -806,14 +809,14 @@ describe.each([true, false])("reschedule selection refresh (targeted=%s)", (isTa
       });
     });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled(),
+      expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeDisabled(),
     );
     await act(async () => {
       resolve({ ok: true, data });
       await refetch;
     });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled(),
     );
     expect(mocks.reschedule).not.toHaveBeenCalled();
     expect(mocks.siteReschedule).not.toHaveBeenCalled();
@@ -844,7 +847,7 @@ describe("refreshed reschedule data", () => {
       await client.invalidateQueries({ queryKey: ["svp-reschedule-sessions"] });
     });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled(),
+      expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeDisabled(),
     );
     expect(mocks.reschedule).not.toHaveBeenCalled();
   });
@@ -861,9 +864,9 @@ describe("refreshed reschedule data", () => {
       await client.invalidateQueries({ queryKey: ["svp-reschedule-slots"] });
     });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
     await waitFor(() =>
       expect(mocks.siteReschedule).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -886,7 +889,7 @@ describe("quiet reschedule recovery", () => {
       message: "RAW_PROVIDER_TRACE expired token HTTP 401",
     });
     renderPanel({ onReconnect });
-    const reconnect = await screen.findByRole("button", { name: "Reconnect to SVP" });
+    const reconnect = await screen.findByRole("button", { name: "সংযোগ করুন" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText(/RAW_PROVIDER_TRACE|HTTP 401|expired token/)).not.toBeInTheDocument();
     fireEvent.click(reconnect);
@@ -901,10 +904,10 @@ describe("quiet reschedule recovery", () => {
       message: "RAW_PROVIDER_TRACE dates HTTP 502",
     });
     renderPanel();
-    const retry = await screen.findByRole("button", { name: "Retry dates" });
+    const retry = await screen.findByRole("button", { name: "তারিখ আবার দেখুন" });
     expect(screen.queryByText(/RAW_PROVIDER_TRACE|HTTP 502/)).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeDisabled();
     fireEvent.click(retry);
     await openDates();
     expect(await screen.findByRole("button", { name: /1 Dec 2026/ })).toBeInTheDocument();
@@ -921,12 +924,12 @@ describe("quiet reschedule recovery", () => {
     );
     renderPanel({ isTargeted: false });
     await selectAvailableReschedule(false);
-    expect(await screen.findByRole("button", { name: "Retry centers" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "কেন্দ্র আবার দেখুন" })).toBeInTheDocument();
     expect(
       screen.queryByText(/RAW_PROVIDER_TRACE|Takamol centers|Takamol availability/),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled();
     expect(mocks.siteReschedule).not.toHaveBeenCalled();
   });
 
@@ -938,17 +941,51 @@ describe("quiet reschedule recovery", () => {
     });
     renderPanel();
     await selectAvailableReschedule(true);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm reschedule" }));
-    const review = await screen.findByRole("button", { name: "Review booking" });
-    expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeDisabled();
-    expect(screen.queryByText("Appointment rescheduled")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
+    const review = await screen.findByRole("button", { name: "বুকিং দেখুন" });
+    expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeDisabled();
+    expect(screen.queryByText("তারিখ বদল হয়েছে")).not.toBeInTheDocument();
     expect(screen.queryByText(/RAW_PROVIDER_TRACE|HTTP 500/)).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(mocks.toastError).not.toHaveBeenCalled();
     fireEvent.click(review);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Confirm reschedule" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled(),
     );
     expect(mocks.reschedule).toHaveBeenCalledOnce();
+  });
+});
+
+describe("reschedule date regressions", () => {
+  it("keeps dates with no city visible and loads sessions using the reservation city", async () => {
+    mocks.dates.mockResolvedValue({
+      ok: true,
+      data: [{ startAt: "2026-12-01", city: null, centerName: null }],
+    });
+    renderPanel();
+    await pickRescheduleDate();
+    await waitFor(() =>
+      expect(mocks.sessions).toHaveBeenCalledWith({
+        data: { categoryId: 159, city: "Dhaka", examDate: "2026-12-01" },
+      }),
+    );
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+  it("keeps the empty calendar and refresh action visible", async () => {
+    mocks.dates.mockResolvedValue({ ok: true, data: [] });
+    renderPanel();
+    await openDates();
+    expect(screen.getByText("এখন কোনো খালি তারিখ নেই।")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "তারিখ আবার দেখুন" })).toBeEnabled();
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+  it("resolves a missing reservation category from its own SVP occupation", async () => {
+    mocks.detail.mockResolvedValue({ ok: true, data: { ...detail, categoryId: null } });
+    renderPanel();
+    await waitFor(() =>
+      expect(mocks.dates).toHaveBeenCalledWith({
+        data: { reservationId: "987", categoryId: 159, countryId: 4 },
+      }),
+    );
   });
 });

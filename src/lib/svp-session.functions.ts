@@ -321,34 +321,78 @@ export const reconnectSvpAccount = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z.object({ login: z.string().trim().min(1).max(254) }).parse(input),
   )
-  .handler(async ({ context, data }): Promise<{ ok: boolean; message: string }> => {
+  .handler(
+    async ({ context, data }): Promise<{ ok: boolean; message: string; otpRequired?: boolean }> => {
+      await requireSvpAllowedRole(context.supabase, context.userId);
+      const account = readStoredSvpAccount(context.userId, data.login);
+      if (!account) {
+        return { ok: false, message: "This SVP account is not saved. Sign in once to save it." };
+      }
+      // Check/refresh the saved session before requesting a new login challenge.
+      try {
+        const checked = await svpAuthedRequest(
+          context.userId,
+          "/individual_labor_space/occupations",
+          { query: { locale: "en", per_page: 1, page: 1 }, timeoutMs: 5000, retries: 0 },
+          account,
+        );
+        if (checked.ok) {
+          setActiveStoredSvpAccount(context.userId, account.login);
+          return { ok: true, otpRequired: false, message: "সেশন সক্রিয় আছে" };
+        }
+        return { ok: false, message: "সংযোগ যাচাই হয়নি। আবার চেষ্টা করুন।" };
+      } catch (error) {
+        if (!(error instanceof SvpSessionMissingError)) {
+          return { ok: false, message: "সংযোগ যাচাই হয়নি। আবার চেষ্টা করুন।" };
+        }
+      }
+      const password = await decryptSvpPassword(account.passwordCipher);
+      if (!password) {
+        return {
+          ok: false,
+          message:
+            "No saved password for this SVP account. Sign in once with the password to enable reconnect.",
+        };
+      }
+      const { response, message } = await svpLoginRequest(
+        "/sessions/login",
+        buildSvpLoginBody({ login: account.login, password }, SVP_SYSTEM_CONFIG),
+      );
+      if (!response.ok) {
+        return { ok: false, message: message ?? "SVP rejected the saved credentials." };
+      }
+      writePendingSvpSession(context.userId, {
+        login: account.login,
+        refreshCookies: mergeCookiePairs("", responseCookies(response)),
+        savedAt: Date.now(),
+        passwordCipher: account.passwordCipher ?? null,
+      });
+      return { ok: true, otpRequired: true, message: "ইমেইলে OTP পাঠানো হয়েছে" };
+    },
+  );
+
+/** Resend a reconnect challenge without exposing the saved password to the browser. */
+export const resendStoredSvpOtp = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ ok: boolean; message: string }> => {
     await requireSvpAllowedRole(context.supabase, context.userId);
-    const account = readStoredSvpAccount(context.userId, data.login);
-    if (!account) {
-      return { ok: false, message: "This SVP account is not saved. Sign in once to save it." };
-    }
-    const password = await decryptSvpPassword(account.passwordCipher);
-    if (!password) {
-      return {
-        ok: false,
-        message:
-          "No saved password for this SVP account. Sign in once with the password to enable reconnect.",
-      };
-    }
-    const { response, message } = await svpLoginRequest(
-      "/sessions/login",
-      buildSvpLoginBody({ login: account.login, password }, SVP_SYSTEM_CONFIG),
+    const pending = readPendingSvpSession(context.userId);
+    const password = pending ? await decryptSvpPassword(pending.passwordCipher) : null;
+    if (!pending || !password) return { ok: false, message: "আবার লগইন করুন" };
+    const { response } = await svpLoginRequest(
+      "/sessions/resend_otp",
+      buildSvpLoginBody({ login: pending.login, password }, SVP_SYSTEM_CONFIG),
     );
-    if (!response.ok) {
-      return { ok: false, message: message ?? "SVP rejected the saved credentials." };
-    }
-    writePendingSvpSession(context.userId, {
-      login: account.login,
-      refreshCookies: mergeCookiePairs("", responseCookies(response)),
-      savedAt: Date.now(),
-      passwordCipher: account.passwordCipher ?? null,
-    });
-    return { ok: true, message: message ?? "OTP sent to the saved SVP email." };
+    if (response.ok)
+      writePendingSvpSession(context.userId, {
+        ...pending,
+        savedAt: Date.now(),
+        refreshCookies: mergeCookiePairs(pending.refreshCookies, responseCookies(response)),
+      });
+    return {
+      ok: response.ok,
+      message: response.ok ? "নতুন OTP পাঠানো হয়েছে" : "OTP পাঠানো যায়নি। আবার চেষ্টা করুন।",
+    };
   });
 
 /** Finish a reconnect using only the OTP; the saved password completes the login. */

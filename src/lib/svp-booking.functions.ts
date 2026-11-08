@@ -968,7 +968,7 @@ export const listSvpRescheduleDates = createServerFn({ method: "POST" })
   .handler(async ({ context, data }): Promise<SvpResult<SvpAvailableDate[]>> => {
     await requireSvpAllowedRole(context.supabase, context.userId);
     try {
-      const from = new Date();
+      const from = new Date(Date.now() + 6 * 60 * 60 * 1000);
       from.setUTCDate(from.getUTCDate() + 2);
       const response = await svpAuthedRequest(
         context.userId,

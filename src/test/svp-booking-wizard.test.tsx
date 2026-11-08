@@ -316,7 +316,7 @@ beforeEach(() => {
 /** Dates live behind a click-to-open calendar now. */
 async function pickDate(label: string) {
   const matcher = new RegExp(label);
-  const trigger = await screen.findByRole("button", { name: "Exam date" });
+  const trigger = await screen.findByRole("button", { name: "পরীক্ষার তারিখ" });
   await waitFor(() => expect(trigger).not.toBeDisabled());
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -334,14 +334,14 @@ async function pickDate(label: string) {
 
 /** The date click resolves the test center automatically, so wait for Continue to enable. */
 async function clickContinue() {
-  const button = screen.getByRole("button", { name: "Continue" });
+  const button = screen.getByRole("button", { name: "পরের ধাপ" });
   await waitFor(() => expect(button).toBeEnabled());
   fireEvent.click(button);
 }
 
 /** The exam language is a manual choice now, so every flow picks one first. */
 function pickLanguage(label = "English") {
-  const select = screen.getByLabelText("Exam language *") as HTMLSelectElement;
+  const select = screen.getByLabelText("পরীক্ষার ভাষা *") as HTMLSelectElement;
   const option =
     Array.from(select.options).find((entry) => entry.textContent?.trim() === label) ??
     Array.from(select.options).find((entry) => entry.value);
@@ -436,19 +436,19 @@ function configureTargetedMode() {
 }
 
 async function openDatesStep(city?: string) {
-  await screen.findByText(/Signed in to SVP as Noor Rahman/);
-  fireEvent.focus(await screen.findByLabelText("Occupation *"));
+  await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+  fireEvent.focus(await screen.findByLabelText("পেশা *"));
   fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
   pickLanguage();
   if (city) {
-    const citySelect = await screen.findByLabelText(/Test center city/);
+    const citySelect = await screen.findByLabelText(/শহর/);
     await waitFor(() =>
       expect(screen.getByRole("option", { name: new RegExp(city) })).toBeInTheDocument(),
     );
     fireEvent.change(citySelect, { target: { value: city } });
   }
   await clickContinue();
-  await screen.findByText(/Step 2/);
+  await screen.findByText(/ধাপ ২/);
 }
 
 describe("SVP booking wizard", () => {
@@ -481,9 +481,9 @@ describe("SVP booking wizard", () => {
     expect(screen.queryByText(/Session 1/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Not provided by SVP/)).not.toBeInTheDocument();
     // The city is chosen on Step 1; Step 2 starts with the date and then loads the test center.
-    expect(screen.queryByLabelText(/Test center city/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/শহর/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Real booking payload/)).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled());
     expect(mocks.targetedHold).not.toHaveBeenCalled();
     expect(mocks.hold).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
@@ -505,14 +505,14 @@ describe("SVP booking wizard", () => {
   it("books a session end to end and saves the local record", async () => {
     renderWizard();
 
-    expect(await screen.findByText(/Signed in to SVP as Noor Rahman/)).toBeInTheDocument();
+    expect(await screen.findByText(/সংযোগ আছে · Noor Rahman/)).toBeInTheDocument();
 
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
 
-    expect(await screen.findByText(/Step 2/)).toBeInTheDocument();
+    expect(await screen.findByText(/ধাপ ২/)).toBeInTheDocument();
     await pickDate("5 Nov 2026");
     await clickContinue();
 
@@ -521,16 +521,16 @@ describe("SVP booking wizard", () => {
         data: { examSessionId: 501, categoryId: 159, countryId: 4 },
       }),
     );
-    expect(await screen.findByText(/Step 3/)).toBeInTheDocument();
-    expect(await screen.findByText(/Seat held by SVP until/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Candidate name *"), {
+    expect(await screen.findByText(/ধাপ ৩/)).toBeInTheDocument();
+    expect(await screen.findByText(/আসন রাখা আছে:/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("পরীক্ষার্থীর নাম *"), {
       target: { value: "Noor Rahman" },
     });
-    fireEvent.change(screen.getByLabelText("Passport *"), { target: { value: "AB123456" } });
+    fireEvent.change(screen.getByLabelText("পাসপোর্ট *"), { target: { value: "AB123456" } });
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Create SVP booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "বুকিং করুন" }));
 
-    expect(await screen.findByText(/SVP reservation number: R-123/)).toBeInTheDocument();
+    expect(await screen.findByText(/বুকিং নম্বর: R-123/)).toBeInTheDocument();
     await waitFor(() =>
       expect(mocks.create).toHaveBeenCalledWith({
         data: {
@@ -573,16 +573,16 @@ describe("SVP booking wizard", () => {
     });
     renderWizard();
 
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
 
     expect(
       await screen.findByText(/An existing reservation already uses this category/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Step 2/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ধাপ ২/)).not.toBeInTheDocument();
   });
 });
 
@@ -602,7 +602,7 @@ describe("occupation auto-suggest", () => {
     mocks.occupations.mockResolvedValue({ ok: true, data: [...unrelated, loading] });
     mocks.search.mockResolvedValue({ ok: true, data: [...unrelated, loading] });
     renderWizard();
-    const input = await screen.findByLabelText("Occupation *");
+    const input = await screen.findByLabelText("পেশা *");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "load" } });
     await waitFor(() => expect(mocks.search).toHaveBeenCalledWith({ data: { query: "load" } }));
@@ -612,7 +612,7 @@ describe("occupation auto-suggest", () => {
     const option = await screen.findByRole("button", { name: /Load and Unload Worker/ });
     expect(screen.queryByRole("button", { name: /Unrelated occupation/ })).not.toBeInTheDocument();
     fireEvent.click(option);
-    expect(screen.getByText(/Selected: Load and Unload Worker/)).toBeInTheDocument();
+    expect(screen.getByText(/বাছাই: Load and Unload Worker/)).toBeInTheDocument();
   });
 
   it("searches SVP for similar occupations while typing", async () => {
@@ -633,7 +633,7 @@ describe("occupation auto-suggest", () => {
     });
 
     renderWizard();
-    const input = await screen.findByLabelText("Occupation *");
+    const input = await screen.findByLabelText("পেশা *");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "load" } });
 
@@ -645,7 +645,7 @@ describe("occupation auto-suggest", () => {
     });
     fireEvent.click(suggestion);
 
-    expect(screen.getByText(/Selected: Loading and Unloading Worker/)).toBeInTheDocument();
+    expect(screen.getByText(/বাছাই: Loading and Unloading Worker/)).toBeInTheDocument();
   });
 });
 
@@ -670,7 +670,7 @@ describe("SVP multi-account vault UI", () => {
     });
 
     renderWizard();
-    const useButtons = await screen.findAllByRole("button", { name: "Use account" });
+    const useButtons = await screen.findAllByRole("button", { name: "ব্যবহার করুন" });
     fireEvent.click(useButtons[0]!);
 
     await waitFor(() =>
@@ -704,16 +704,16 @@ describe("SVP multi-account vault UI", () => {
 
     renderWizard();
 
-    const reconnectButtons = await screen.findAllByRole("button", { name: "Reconnect" });
+    const reconnectButtons = await screen.findAllByRole("button", { name: "সংযোগ যাচাই" });
     fireEvent.click(reconnectButtons[1]!);
 
     await waitFor(() =>
       expect(mocks.reconnect).toHaveBeenCalledWith({ data: { login: "other@example.com" } }),
     );
-    expect(await screen.findByText(/OTP sent to the saved email/)).toBeInTheDocument();
+    expect(await screen.findByText(/other@example.com–এ পাঠানো OTP/)).toBeInTheDocument();
     expect(screen.getByText("SVPLOGINPANEL")).toBeInTheDocument();
 
-    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    const deleteButtons = screen.getAllByRole("button", { name: "মুছুন" });
     fireEvent.click(deleteButtons[1]!);
     await waitFor(() =>
       expect(mocks.removeAccount).toHaveBeenCalledWith({ data: { login: "other@example.com" } }),
@@ -723,10 +723,10 @@ describe("SVP multi-account vault UI", () => {
   it("opens the login panel to add another account without losing the active one", async () => {
     renderWizard();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "অ্যাকাউন্ট যোগ" }));
 
     expect(await screen.findByText("SVPLOGINPANEL")).toBeInTheDocument();
-    expect(screen.getByText("Add another SVP account")).toBeInTheDocument();
+    expect(screen.getByText("SVP অ্যাকাউন্ট যোগ")).toBeInTheDocument();
   });
 });
 
@@ -759,7 +759,7 @@ describe("occupation category enrichment", () => {
     });
 
     renderWizard();
-    const input = await screen.findByLabelText("Occupation *");
+    const input = await screen.findByLabelText("পেশা *");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "load" } });
     fireEvent.click(await screen.findByRole("button", { name: /Load and Unload Worker/ }));
@@ -769,10 +769,10 @@ describe("occupation category enrichment", () => {
         data: { occupationId: 77, name: "Load and Unload Worker" },
       }),
     );
-    expect(await screen.findByText(/Selected: Load and Unload Worker/)).toBeInTheDocument();
+    expect(await screen.findByText(/বাছাই: Load and Unload Worker/)).toBeInTheDocument();
     expect(screen.queryByText(/category 159/)).not.toBeInTheDocument();
     pickLanguage();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled();
   });
 });
 
@@ -816,7 +816,7 @@ describe("SVP category auto-match", () => {
     });
 
     renderWizard();
-    const input = await screen.findByLabelText("Occupation *");
+    const input = await screen.findByLabelText("পেশা *");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "load" } });
     fireEvent.click(await screen.findByRole("button", { name: /Load and Unload Worker/ }));
@@ -824,7 +824,7 @@ describe("SVP category auto-match", () => {
     await waitFor(() => expect(mocks.occupationById).toHaveBeenCalled());
     expect(screen.queryByText(/Auto-matched to/)).not.toBeInTheDocument();
     pickLanguage();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled();
   });
 });
 
@@ -849,12 +849,12 @@ describe("SVP city dropdowns", () => {
     });
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
 
-    const citySelect = await screen.findByLabelText("Test center city *");
+    const citySelect = await screen.findByLabelText("শহর *");
     await waitFor(() => expect(citySelect).toHaveValue("Dhaka"));
     await clickContinue();
     await waitFor(() =>
@@ -894,12 +894,12 @@ describe("SVP city dropdowns", () => {
     });
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
 
-    const citySelect = await screen.findByLabelText("Test center city *");
+    const citySelect = await screen.findByLabelText("শহর *");
     await waitFor(() => expect(citySelect).toHaveValue(""));
     await waitFor(() =>
       expect(screen.getByRole("option", { name: "Rajshahi" })).toBeInTheDocument(),
@@ -913,16 +913,18 @@ describe("SVP city dropdowns", () => {
     );
 
     await pickDate("2 Dec 2026");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled());
 
-    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
-    const citySelectAgain = await screen.findByLabelText("Test center city *");
+    fireEvent.click(screen.getByRole("button", { name: /আগের ধাপ/ }));
+    const citySelectAgain = await screen.findByLabelText("শহর *");
     fireEvent.change(citySelectAgain, { target: { value: "Dhaka" } });
     await clickContinue();
-    await screen.findByText(/Step 2/);
+    await screen.findByText(/ধাপ ২/);
 
     // Changing the city resets the date/session cascade.
-    expect(screen.getByRole("button", { name: "Exam date" })).not.toHaveTextContent(/2 Dec 2026/);
+    expect(screen.getByRole("button", { name: "পরীক্ষার তারিখ" })).not.toHaveTextContent(
+      /2 Dec 2026/,
+    );
     expect(mocks.hold).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
   });
@@ -945,7 +947,7 @@ describe("SVP city dropdowns", () => {
     renderWizard();
     await openDatesStep("Dhaka");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Exam date" }));
+    fireEvent.click(await screen.findByRole("button", { name: "পরীক্ষার তারিখ" }));
     expect(await screen.findByRole("button", { name: /5 Nov 2026/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /7 Nov 2026/ })).not.toBeInTheDocument();
 
@@ -975,12 +977,12 @@ describe("SVP city dropdowns", () => {
     });
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
 
-    const citySelect = await screen.findByLabelText("Test center city *");
+    const citySelect = await screen.findByLabelText("শহর *");
     expect(citySelect).toHaveValue("");
     expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Rajshahi" })).toBeInTheDocument();
@@ -995,12 +997,12 @@ describe("SVP city dropdowns", () => {
     mocks.dates.mockResolvedValue({ ok: true, data: [] });
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
 
-    expect(await screen.findByLabelText("Test center city")).toBeDisabled();
+    expect(await screen.findByLabelText("শহর")).toBeDisabled();
     expect(
       await screen.findByText("City (manual fallback)", undefined, { timeout: 3000 }),
     ).toBeInTheDocument();
@@ -1018,21 +1020,19 @@ describe("SVP city dropdowns", () => {
     );
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
 
     await waitFor(() =>
       expect(
-        screen
-          .getAllByRole("status")
-          .some((status) => /Loading available cities/i.test(status.textContent ?? "")),
+        screen.getAllByRole("status").some((status) => /শহর আসছে/i.test(status.textContent ?? "")),
       ).toBe(true),
     );
 
     resolveCities({ ok: true, data: [{ city: "Dhaka", countryId: 77 }] });
-    expect(await screen.findByLabelText("Test center city *")).toHaveValue("Dhaka");
+    await waitFor(() => expect(screen.getByLabelText("শহর *")).toHaveValue("Dhaka"));
   });
 });
 
@@ -1069,16 +1069,16 @@ describe("site-based booking flow", () => {
 
     renderWizard();
 
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
-    fireEvent.change(await screen.findByLabelText("Test center city *"), {
+    fireEvent.change(await screen.findByLabelText("শহর *"), {
       target: { value: "Dhaka" },
     });
     await clickContinue();
 
-    expect(await screen.findByText(/Step 2/)).toBeInTheDocument();
+    expect(await screen.findByText(/ধাপ ২/)).toBeInTheDocument();
     await pickDate("1 Dec 2026");
     await clickContinue();
 
@@ -1087,16 +1087,16 @@ describe("site-based booking flow", () => {
         data: { slotId: "slot-1", siteId: 9 },
       }),
     );
-    expect(await screen.findByText(/Step 3/)).toBeInTheDocument();
+    expect(await screen.findByText(/ধাপ ৩/)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Candidate name *"), {
+    fireEvent.change(screen.getByLabelText("পরীক্ষার্থীর নাম *"), {
       target: { value: "Noor Rahman" },
     });
-    fireEvent.change(screen.getByLabelText("Passport *"), { target: { value: "AB123456" } });
+    fireEvent.change(screen.getByLabelText("পাসপোর্ট *"), { target: { value: "AB123456" } });
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Create SVP booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "বুকিং করুন" }));
 
-    expect(await screen.findByText(/SVP reservation number: R-123/)).toBeInTheDocument();
+    expect(await screen.findByText(/বুকিং নম্বর: R-123/)).toBeInTheDocument();
     await waitFor(() =>
       expect(mocks.create).toHaveBeenCalledWith({
         data: {
@@ -1200,22 +1200,22 @@ describe("load-balancer targeted booking", () => {
     });
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByText(/Step 2/);
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
+    await screen.findByText(/ধাপ ২/);
     await pickDate("5 Nov 2026");
     // The date click shows the test center directly instead of an SVP session list.
-    expect(await screen.findByText("Test center")).toBeInTheDocument();
+    expect(await screen.findByText("পরীক্ষাকেন্দ্র")).toBeInTheDocument();
     expect(
       await screen.findByRole("button", { name: /Cumilla Technical Training Centre/ }),
     ).toHaveTextContent("8");
     expect(screen.queryByText(/SVP sessions for this date/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Session 1/)).not.toBeInTheDocument();
     // Load-balancer tokens are date-only: the first token is preselected, all are held.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled());
     await clickContinue();
 
     await waitFor(() =>
@@ -1226,14 +1226,14 @@ describe("load-balancer targeted booking", () => {
     await waitFor(() =>
       expect(mocks.sessionById).toHaveBeenCalledWith({ data: { examSessionId: "assigned-1" } }),
     );
-    expect(await screen.findByText(/Step 3/)).toBeInTheDocument();
+    expect(await screen.findByText(/ধাপ ৩/)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Candidate name *"), {
+    fireEvent.change(screen.getByLabelText("পরীক্ষার্থীর নাম *"), {
       target: { value: "Md Farid" },
     });
-    fireEvent.change(screen.getByLabelText("Passport *"), { target: { value: "AB123456" } });
+    fireEvent.change(screen.getByLabelText("পাসপোর্ট *"), { target: { value: "AB123456" } });
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Create SVP booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "বুকিং করুন" }));
 
     await waitFor(() =>
       expect(mocks.create).toHaveBeenCalledWith({
@@ -1286,23 +1286,23 @@ describe("SVP availability selection", () => {
     renderWizard();
     await openDatesStep("Rajshahi");
     await pickDate("23 Nov 2026");
-    expect(await screen.findByText("Loading the test center…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(await screen.findByText("কেন্দ্র আসছে…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeDisabled();
     await pickDate("24 Nov 2026");
     await screen.findByText("2026-11-24 Rajshahi center 1");
     expect(
-      within(screen.getByRole("group", { name: "Test centers" })).getAllByRole("button"),
+      within(screen.getByRole("group", { name: "পরীক্ষাকেন্দ্র" })).getAllByRole("button"),
     ).toHaveLength(6);
     await act(async () => {
       finishFirstDay({ ok: true, data: daySessions("2026-11-23", 8) });
     });
-    expect(screen.getByRole("button", { name: "Exam date" })).toHaveTextContent("24 Nov 2026");
+    expect(screen.getByRole("button", { name: "পরীক্ষার তারিখ" })).toHaveTextContent("24 Nov 2026");
     expect(screen.queryByText("2026-11-23 Rajshahi center 1")).not.toBeInTheDocument();
     await pickDate("23 Nov 2026");
     await screen.findByText("2026-11-23 Rajshahi center 1");
     await waitFor(() =>
       expect(
-        within(screen.getByRole("group", { name: "Test centers" })).getAllByRole("button"),
+        within(screen.getByRole("group", { name: "পরীক্ষাকেন্দ্র" })).getAllByRole("button"),
       ).toHaveLength(8),
     );
     expect(mocks.sessions).toHaveBeenCalledWith({
@@ -1327,7 +1327,7 @@ describe("SVP availability selection", () => {
     await pickDate("5 Nov 2026");
 
     expect(await screen.findByText("Dhaka Center")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled();
     expect(
       screen.queryByText(/Takamol|Dates and sessions come live|Select an available date first/),
     ).not.toBeInTheDocument();
@@ -1353,7 +1353,7 @@ describe("SVP availability selection", () => {
       data: [{ ...session, id: 502, centerName: "Updated Dhaka Center" }],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "আবার দেখুন" }));
     expect(await screen.findByText("Updated Dhaka Center")).toBeInTheDocument();
     await clickContinue();
     await waitFor(() =>
@@ -1368,13 +1368,13 @@ describe("SVP availability selection", () => {
     renderWizard();
     await openDatesStep();
     await pickDate("1 Dec 2026");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled());
     mocks.slots.mockResolvedValue({
       ok: true,
       data: [{ id: "slot-2", siteId: 9, startAt: "2026-12-01T11:00:00", duration: 30 }],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "আবার দেখুন" }));
     await screen.findByText(/11:00/);
     await clickContinue();
     await waitFor(() =>
@@ -1394,18 +1394,16 @@ describe("SVP availability selection", () => {
     renderWizard();
     await openDatesStep();
     await pickDate("5 Nov 2026");
-    expect(await screen.findByText("Loading the test center…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(await screen.findByText("কেন্দ্র আসছে…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeDisabled();
 
     resolveSessions({ ok: true, data: [session] });
     await screen.findByText("Dhaka Center");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled());
     mocks.sessions.mockResolvedValue({ ok: true, data: [] });
-    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
-    expect(
-      await screen.findByText("No sessions available. Choose another date."),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "আবার দেখুন" }));
+    expect(await screen.findByText("আসন নেই। অন্য তারিখ বাছুন।")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeDisabled();
     expect(mocks.targetedHold).not.toHaveBeenCalled();
   });
 
@@ -1419,12 +1417,12 @@ describe("SVP availability selection", () => {
     await openDatesStep();
     await pickDate("5 Nov 2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("Sessions could not be loaded.");
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeDisabled();
 
     mocks.sessions.mockResolvedValue({ ok: true, data: [session] });
-    fireEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "আবার দেখুন" }));
     expect(await screen.findByText("Dhaka Center")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
@@ -1450,28 +1448,28 @@ describe("booking and reschedule mode separation", () => {
     });
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
-    fireEvent.change(await screen.findByLabelText("Test center city"), {
+    fireEvent.change(await screen.findByLabelText("শহর"), {
       target: { value: "Dhaka" },
     });
     await clickContinue();
-    await screen.findByText(/Step 2/);
-    expect(screen.getByText("Occupation & center")).toBeInTheDocument();
+    await screen.findByText(/ধাপ ২/);
+    expect(screen.getByText("পেশা ও শহর")).toBeInTheDocument();
 
     // Open a reschedule from the account bookings list mid-booking.
-    fireEvent.click(await screen.findByRole("button", { name: /Reschedule/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /তারিখ বদল/ }));
     expect(await screen.findByText("RESCHEDULEPANEL")).toBeInTheDocument();
     // The new-booking stepper and Step 2 stay hidden while rescheduling.
-    expect(screen.queryByText("Occupation & center")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Step 2/)).not.toBeInTheDocument();
+    expect(screen.queryByText("পেশা ও শহর")).not.toBeInTheDocument();
+    expect(screen.queryByText(/ধাপ ২/)).not.toBeInTheDocument();
 
     // Closing the reschedule returns to a clean Step 1, not the stale Step 2.
     fireEvent.click(screen.getByRole("button", { name: "Close reschedule" }));
-    expect(await screen.findByText(/Step 1/)).toBeInTheDocument();
-    expect(screen.queryByText(/Step 2/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/ধাপ ১/)).toBeInTheDocument();
+    expect(screen.queryByText(/ধাপ ২/)).not.toBeInTheDocument();
     expect(screen.queryByText("RESCHEDULEPANEL")).not.toBeInTheDocument();
   });
 });
@@ -1511,7 +1509,7 @@ describe("SVP ticket download", () => {
     });
 
     renderWizard();
-    fireEvent.click(await screen.findByRole("button", { name: "Ticket PDF" }));
+    fireEvent.click(await screen.findByRole("button", { name: "টিকিট" }));
 
     await waitFor(() =>
       expect(mocks.ticket).toHaveBeenCalledWith({ data: { reservationId: "987" } }),
@@ -1530,49 +1528,47 @@ describe("temporary seat hold", () => {
     });
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
     pickLanguage();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByText(/Step 2/);
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
+    await screen.findByText(/ধাপ ২/);
     await pickDate("5 Nov 2026");
     await clickContinue();
 
     await waitFor(() => expect(mocks.targetedHold).toHaveBeenCalled());
-    expect(screen.queryByText(/Step 3/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ধাপ ৩/)).not.toBeInTheDocument();
   });
 });
 
 async function openConfirmation() {
-  await screen.findByText(/Signed in to SVP as Noor Rahman/);
-  fireEvent.focus(await screen.findByLabelText("Occupation *"));
+  await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+  fireEvent.focus(await screen.findByLabelText("পেশা *"));
   fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
   pickLanguage();
   await clickContinue();
-  await screen.findByText(/Step 2/);
+  await screen.findByText(/ধাপ ২/);
   await pickDate("5 Nov 2026");
   await clickContinue();
-  await screen.findByText(/Step 3/);
+  await screen.findByText(/ধাপ ৩/);
 }
 
 function submitConfirmedBooking() {
   fireEvent.click(screen.getByRole("checkbox"));
-  fireEvent.click(screen.getByRole("button", { name: "Create SVP booking" }));
+  fireEvent.click(screen.getByRole("button", { name: "বুকিং করুন" }));
 }
 
 describe("automatic SVP candidate record flow", () => {
   it("fills name and passport from SVP while keeping agency optional", async () => {
     renderWizard();
     await openConfirmation();
-    expect(screen.getByLabelText("Candidate name *")).toHaveValue("Noor Rahman");
-    expect(screen.getByLabelText("Passport *")).toHaveValue("AB123456");
-    expect(screen.getByLabelText("Agency")).toHaveValue("");
+    expect(screen.getByLabelText("পরীক্ষার্থীর নাম *")).toHaveValue("Noor Rahman");
+    expect(screen.getByLabelText("পাসপোর্ট *")).toHaveValue("AB123456");
+    expect(screen.getByLabelText("এজেন্সি")).toHaveValue("");
     expect(mocks.insert).not.toHaveBeenCalled();
     submitConfirmedBooking();
-    expect(
-      await screen.findByText("Local reservation record saved automatically."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("বুকিং সংরক্ষিত হয়েছে।")).toBeInTheDocument();
     expect(mocks.insert).toHaveBeenCalledTimes(1);
     expect(mocks.insert).toHaveBeenCalledWith(
       expect.objectContaining({ agency: null, reference_no: "R-123" }),
@@ -1612,14 +1608,14 @@ describe("automatic SVP candidate record flow", () => {
     });
 
     renderWizard();
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
 
-    const languageSelect = screen.getByLabelText("Exam language *") as HTMLSelectElement;
+    const languageSelect = screen.getByLabelText("পরীক্ষার ভাষা *") as HTMLSelectElement;
     await waitFor(() => expect(languageSelect).toHaveValue("en"));
     expect(Array.from(languageSelect.options).map((entry) => entry.value)).toEqual(["", "en"]);
     expect(languageSelect).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled();
   });
 
   it("requires missing provider passport without inventing it", async () => {
@@ -1632,10 +1628,10 @@ describe("automatic SVP candidate record flow", () => {
     });
     renderWizard();
     await openConfirmation();
-    expect(screen.getByLabelText("Candidate name *")).toHaveValue("Noor Rahman");
-    expect(screen.getByLabelText("Passport *")).toHaveValue("");
+    expect(screen.getByLabelText("পরীক্ষার্থীর নাম *")).toHaveValue("Noor Rahman");
+    expect(screen.getByLabelText("পাসপোর্ট *")).toHaveValue("");
     fireEvent.click(screen.getByRole("checkbox"));
-    expect(screen.getByRole("button", { name: "Create SVP booking" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "বুকিং করুন" })).toBeDisabled();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.insert).not.toHaveBeenCalled();
   });
@@ -1643,16 +1639,16 @@ describe("automatic SVP candidate record flow", () => {
   it("cleans a formatted passport and still blocks a short one", async () => {
     renderWizard();
     await openConfirmation();
-    const input = screen.getByLabelText("Passport *") as HTMLInputElement;
+    const input = screen.getByLabelText("পাসপোর্ট *") as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: "ab-123456" } });
     expect(input.value).toBe("AB123456");
     fireEvent.click(screen.getByRole("checkbox"));
-    expect(screen.getByRole("button", { name: "Create SVP booking" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "বুকিং করুন" })).toBeEnabled();
 
     fireEvent.change(input, { target: { value: "AB" } });
-    expect(screen.getByRole("button", { name: "Create SVP booking" })).toBeDisabled();
-    expect(screen.getByText(/Use 5–20 letters and numbers/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "বুকিং করুন" })).toBeDisabled();
+    expect(screen.getByText(/পাসপোর্টে ৫–২০টি/)).toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
@@ -1666,11 +1662,9 @@ describe("automatic SVP candidate record flow", () => {
     await openConfirmation();
     submitConfirmedBooking();
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Create SVP booking" })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "বুকিং করুন" })).toBeEnabled());
     expect(mocks.insert).not.toHaveBeenCalled();
-    expect(screen.queryByText("Reservation created")).not.toBeInTheDocument();
+    expect(screen.queryByText("বুকিং হয়েছে")).not.toBeInTheDocument();
   });
 
   it("retries only the local save after a successful SVP booking", async () => {
@@ -1680,24 +1674,22 @@ describe("automatic SVP candidate record flow", () => {
     renderWizard();
     await openConfirmation();
     submitConfirmedBooking();
-    const retry = await screen.findByRole("button", { name: "Retry local save" });
-    expect(screen.getByText(/Do not book again/)).toBeInTheDocument();
+    const retry = await screen.findByRole("button", { name: "আবার সংরক্ষণ" });
+    expect(screen.getByText(/আবার বুকিং করবেন না/)).toBeInTheDocument();
     expect(
       screen
-        .getAllByRole("button", { name: "New booking" })
+        .getAllByRole("button", { name: "নতুন বুকিং" })
         .every((button) => (button as HTMLButtonElement).disabled),
     ).toBe(true);
-    expect(screen.getByRole("button", { name: "Book another" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "নতুন বুকিং" }).at(-1)!).toBeDisabled();
     fireEvent.click(retry);
-    expect(
-      await screen.findByText("Local reservation record saved automatically."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("বুকিং সংরক্ষিত হয়েছে।")).toBeInTheDocument();
     expect(
       screen
-        .getAllByRole("button", { name: "New booking" })
+        .getAllByRole("button", { name: "নতুন বুকিং" })
         .every((button) => !(button as HTMLButtonElement).disabled),
     ).toBe(true);
-    expect(screen.getByRole("button", { name: "Book another" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "নতুন বুকিং" }).at(-1)!).toBeEnabled();
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.insert).toHaveBeenCalledTimes(2);
     expect(mocks.insert.mock.calls[1]?.[0]).toEqual(mocks.insert.mock.calls[0]?.[0]);
@@ -1717,11 +1709,11 @@ describe("automatic SVP candidate record flow", () => {
     renderWizard();
     await openConfirmation();
     submitConfirmedBooking();
-    await screen.findByText("Local reservation record saved automatically.");
+    await screen.findByText("বুকিং সংরক্ষিত হয়েছে।");
     expect(mocks.insert).toHaveBeenCalledWith(
       expect.objectContaining({ reference_no: "R-124", status: "draft" }),
     );
-    expect(screen.getByText(/not confirmed until payment/)).toBeInTheDocument();
+    expect(screen.getByText(/পেমেন্টের পর বুকিং নিশ্চিত হবে/)).toBeInTheDocument();
   });
 
   it("opens the secure SVP payment in a new tab when payment is required", async () => {
@@ -1764,16 +1756,16 @@ describe("automatic SVP candidate record flow", () => {
     renderWizard();
     await openConfirmation();
     submitConfirmedBooking();
-    await screen.findByText(/Saving the local reservation record automatically/);
-    expect(screen.getByRole("button", { name: "Book another" })).toBeDisabled();
+    await screen.findByText(/বুকিং সংরক্ষণ হচ্ছে/);
+    expect(screen.getAllByRole("button", { name: "নতুন বুকিং" }).at(-1)!).toBeDisabled();
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.insert).toHaveBeenCalledTimes(1);
     finishSave("saved-row");
-    await screen.findByText("Local reservation record saved automatically.");
+    await screen.findByText("বুকিং সংরক্ষিত হয়েছে।");
   });
 });
 
-describe("SVP account activity", () => {
+describe("অ্যাকাউন্ট তথ্য", () => {
   it("shows real card payments and cancels a reservation through the DELETE route", async () => {
     mocks.payments.mockResolvedValue({
       ok: true,
@@ -1824,12 +1816,12 @@ describe("SVP account activity", () => {
 
     renderWizard();
 
-    expect(await screen.findByText("Payments & notifications")).toBeInTheDocument();
+    expect(await screen.findByText("পেমেন্ট ও নোটিশ")).toBeInTheDocument();
     expect(screen.getByText("#2596452")).toBeInTheDocument();
     expect(screen.getByText("85 SAR")).toBeInTheDocument();
     expect(screen.getByText("Payment received")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "বাতিল" }));
 
     await waitFor(() =>
       expect(mocks.cancel).toHaveBeenCalledWith({ data: { reservationId: "R-123" } }),
@@ -1862,11 +1854,11 @@ describe("Takamol occupation language system", () => {
     );
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
 
-    const select = (await screen.findByLabelText("Exam language *")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText("পরীক্ষার ভাষা *")) as HTMLSelectElement;
     await waitFor(() => expect(select).toHaveValue("WLDBB"));
     // Only Takamol's language is shown and it is applied automatically.
     expect(Array.from(select.options).filter((option) => option.value)).toHaveLength(1);
@@ -1927,14 +1919,14 @@ describe("manual language fallback", () => {
     );
 
     renderWizard();
-    await screen.findByText(/Signed in to SVP as Noor Rahman/);
-    fireEvent.focus(await screen.findByLabelText("Occupation *"));
+    await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+    fireEvent.focus(await screen.findByLabelText("পেশা *"));
     fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
 
-    const input = await screen.findByPlaceholderText("Enter the SVP language code");
+    const input = await screen.findByPlaceholderText("SVP ভাষার কোড দিন");
     fireEvent.change(input, { target: { value: "WLDBB" } });
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "পরের ধাপ" })).toBeEnabled());
   });
 });
 
@@ -1943,7 +1935,7 @@ describe("SVP booking cost", () => {
     renderWizard();
     await openConfirmation();
 
-    expect(screen.getByText("Booking cost")).toBeInTheDocument();
+    expect(screen.getByText("বুকিং ফি")).toBeInTheDocument();
     expect(screen.getByText("৳100")).toBeInTheDocument();
   });
 
@@ -1953,6 +1945,15 @@ describe("SVP booking cost", () => {
     await openConfirmation();
 
     expect(await screen.findByText(/ব্যালেন্স কম/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create SVP booking" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "বুকিং করুন" })).toBeDisabled();
   });
+});
+
+it("keeps an active connection in the booking flow without showing OTP", async () => {
+  mocks.reconnect.mockResolvedValue({ ok: true, otpRequired: false, message: "সেশন সক্রিয় আছে" });
+  renderWizard();
+  fireEvent.click((await screen.findAllByRole("button", { name: "সংযোগ যাচাই" }))[0]);
+  await waitFor(() => expect(mocks.reconnect).toHaveBeenCalled());
+  expect(screen.queryByText("SVPLOGINPANEL")).not.toBeInTheDocument();
+  expect(screen.getByText(/ধাপ ১/)).toBeInTheDocument();
 });

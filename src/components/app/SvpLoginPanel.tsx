@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Eye, EyeOff, RotateCcw } from "lucide-react";
-import { resendSvpOtp, submitStoredSvpOtp, submitSvpLogin } from "@/lib/svp-session.functions";
+import {
+  resendSvpOtp,
+  resendStoredSvpOtp,
+  submitStoredSvpOtp,
+  submitSvpLogin,
+} from "@/lib/svp-session.functions";
 import { svpLoginInputSchema, svpOtpInputSchema } from "@/lib/svp-session.shared";
+import { autoOpenSvpMail, setAutoOpenSvpMail, svpMailboxUrl, reserveSvpMail } from "@/lib/svp-mail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/app/ui-bits";
@@ -14,7 +20,7 @@ type FormState = {
 
 type LoginStep = "login" | "otp";
 
-type Status = { tone: "ok" | "error"; text: string; details?: string };
+type Status = { tone: "ok" | "error"; text: string };
 
 const EMPTY_FORM: FormState = { login: "", password: "", otpAttempt: "" };
 
@@ -36,6 +42,8 @@ export function SvpLoginPanel({
   const [resending, setResending] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const busyRef = useRef(false);
+  const [openMail, setOpenMail] = useState(autoOpenSvpMail);
+  const mailbox = svpMailboxUrl(form.login);
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -44,8 +52,8 @@ export function SvpLoginPanel({
   }, [resendIn]);
 
   const reset = () => {
-    setForm({ ...EMPTY_FORM });
-    setStep("login");
+    setForm({ ...EMPTY_FORM, login: otpOnly ? login : "" });
+    setStep(otpOnly ? "otp" : "login");
     setStatus(null);
     setShowPassword(false);
     setResendIn(0);
@@ -58,17 +66,29 @@ export function SvpLoginPanel({
   const resend = async () => {
     if (resending || resendIn > 0) return;
     const parsed = svpLoginInputSchema.safeParse({ login: form.login, password: form.password });
-    if (!parsed.success) {
-      setStatus({ tone: "error", text: "Enter the SVP username and password again." });
+    if (!otpOnly && !parsed.success) {
+      setStatus({ tone: "error", text: "ইমেইল ও পাসওয়ার্ড আবার দিন।" });
       return;
     }
+    const mail = reserveSvpMail(form.login);
     setResending(true);
     try {
-      const result = await resendSvpOtp({ data: parsed.data });
-      setStatus({ tone: result.ok ? "ok" : "error", text: result.message });
+      const result = otpOnly
+        ? await resendStoredSvpOtp()
+        : await resendSvpOtp({ data: parsed.success ? parsed.data : { login: "", password: "" } });
+      mail?.finish(result.ok);
+      setStatus({
+        tone: result.ok ? "ok" : "error",
+        text: result.ok
+          ? step === "login"
+            ? "ইমেইলে OTP পাঠানো হয়েছে"
+            : "নতুন OTP পাঠানো হয়েছে"
+          : "OTP পাঠানো যায়নি। আবার চেষ্টা করুন।",
+      });
       if (result.ok) setResendIn(60);
     } catch {
-      setStatus({ tone: "error", text: "The OTP could not be resent. Try again." });
+      mail?.finish(false);
+      setStatus({ tone: "error", text: "OTP পাঠানো যায়নি। আবার চেষ্টা করুন।" });
     } finally {
       setResending(false);
     }
@@ -91,22 +111,26 @@ export function SvpLoginPanel({
     if (!otpOnly && !parsed?.success) {
       setStatus({
         tone: "error",
-        text: step === "login" ? "Enter the SVP username and password." : "Enter the OTP.",
+        text: step === "login" ? "ইমেইল ও পাসওয়ার্ড দিন।" : "OTP দিন।",
       });
       return;
     }
 
+    const mail = step === "login" ? reserveSvpMail(form.login) : null;
     busyRef.current = true;
     setBusy(true);
     setStatus(null);
     try {
       if (otpOnly) {
         if (!form.otpAttempt.trim()) {
-          setStatus({ tone: "error", text: "Enter the OTP." });
+          setStatus({ tone: "error", text: "OTP দিন।" });
           return;
         }
         const stored = await submitStoredSvpOtp({ data: { otpAttempt: form.otpAttempt } });
-        setStatus({ tone: stored.ok ? "ok" : "error", text: stored.message });
+        setStatus({
+          tone: stored.ok ? "ok" : "error",
+          text: stored.ok ? "সংযোগ হয়েছে" : "OTP সঠিক নয় বা মেয়াদ শেষ। নতুন কোড নিন।",
+        });
         if (stored.ok) onSignedIn?.();
         return;
       }
@@ -115,10 +139,16 @@ export function SvpLoginPanel({
           ? await submitSvpLogin({ data: { ...parsed!.data, step: "login" } })
           : await submitSvpLogin({ data: { ...parsed!.data, step: "otp" } });
 
+      mail?.finish(Boolean(result.otpRequired));
       setStatus({
         tone: result.ok ? "ok" : "error",
-        text: result.message,
-        details: result.ok ? undefined : result.details,
+        text: result.ok
+          ? result.otpRequired
+            ? "ইমেইলে OTP পাঠানো হয়েছে"
+            : "সংযোগ হয়েছে"
+          : step === "otp"
+            ? "OTP সঠিক নয় বা মেয়াদ শেষ। নতুন কোড নিন।"
+            : "ইমেইল ও পাসওয়ার্ড মিলিয়ে নিন।",
       });
       if (step === "login" && result.otpRequired) {
         setStep("otp");
@@ -126,13 +156,11 @@ export function SvpLoginPanel({
       if (result.authenticated && result.session) {
         onSignedIn?.();
       }
-    } catch (error) {
+    } catch {
+      mail?.finish(false);
       setStatus({
         tone: "error",
-        text:
-          error instanceof Error && error.message
-            ? error.message
-            : "The SVP request could not be completed. Try again.",
+        text: "সংযোগ হয়নি। আবার চেষ্টা করুন।",
       });
     } finally {
       busyRef.current = false;
@@ -147,19 +175,42 @@ export function SvpLoginPanel({
     >
       <div>
         <h2 id="svp-login-title" className="text-xl font-bold">
-          {step === "login" ? "SVP login" : "SVP OTP verification"}
+          {step === "login" ? "SVP লগইন" : "OTP যাচাই"}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {step === "login"
-            ? "Enter the SVP username and password. SVP emails a one-time password once they are accepted."
-            : `Enter the OTP sent for ${form.login}.`}
+          {step === "login" ? "SVP ইমেইল ও পাসওয়ার্ড দিন।" : `${form.login}–এ পাঠানো OTP দিন।`}
         </p>
       </div>
 
+      {mailbox && (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={openMail}
+              onChange={(event) => {
+                setOpenMail(event.target.checked);
+                setAutoOpenSvpMail(event.target.checked);
+              }}
+            />{" "}
+            OTP পাঠালে Yopmail খুলুন
+          </label>
+          {step === "otp" && (
+            <a
+              href={mailbox}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-primary underline"
+            >
+              Yopmail খুলুন
+            </a>
+          )}
+        </div>
+      )}
       <form className="space-y-4" onSubmit={(event) => void submit(event)}>
         {step === "login" ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="SVP username">
+            <Field label="SVP ইমেইল">
               <Input
                 name="login"
                 value={form.login}
@@ -169,7 +220,7 @@ export function SvpLoginPanel({
                 required
               />
             </Field>
-            <Field label="Password">
+            <Field label="পাসওয়ার্ড">
               <div className="relative">
                 <Input
                   name="password"
@@ -185,7 +236,7 @@ export function SvpLoginPanel({
                   type="button"
                   onClick={() => setShowPassword((current) => !current)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? "পাসওয়ার্ড লুকান" : "পাসওয়ার্ড দেখুন"}
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -194,7 +245,7 @@ export function SvpLoginPanel({
             </Field>
           </div>
         ) : (
-          <Field label="One-time password (OTP)">
+          <Field label="OTP কোড">
             <Input
               name="otp"
               value={form.otpAttempt}
@@ -209,20 +260,20 @@ export function SvpLoginPanel({
 
         <div className="flex flex-wrap gap-2">
           <Button type="submit" disabled={busy}>
-            {busy ? "Please wait…" : step === "login" ? "Continue" : "Verify OTP"}
+            {busy ? "অপেক্ষা করুন…" : step === "login" ? "পরের ধাপ" : "OTP যাচাই"}
           </Button>
-          {step === "otp" && !otpOnly && (
+          {step === "otp" && (
             <Button
               type="button"
               variant="outline"
               onClick={() => void resend()}
               disabled={busy || resending || resendIn > 0}
             >
-              {resending ? "Sending…" : resendIn > 0 ? `Resend in ${resendIn}s` : "Resend OTP"}
+              {resending ? "পাঠানো হচ্ছে…" : resendIn > 0 ? `${resendIn} সেকেন্ড পরে` : "নতুন OTP"}
             </Button>
           )}
           <Button type="button" variant="outline" onClick={reset} disabled={busy}>
-            <RotateCcw className="mr-2 h-4 w-4" /> Reset
+            <RotateCcw className="mr-2 h-4 w-4" /> মুছুন
           </Button>
         </div>
       </form>
@@ -237,7 +288,6 @@ export function SvpLoginPanel({
           }`}
         >
           <p>{status.text}</p>
-          {status.details && <p className="font-mono text-[11px] opacity-80">{status.details}</p>}
         </div>
       )}
     </section>

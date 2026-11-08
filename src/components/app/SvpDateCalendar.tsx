@@ -67,12 +67,12 @@ export function SvpDateCalendar({
 
   return (
     <div className="relative space-y-1" ref={boxRef}>
-      <span className="text-sm font-medium">Exam date *</span>
+      <span className="text-sm font-medium">পরীক্ষার তারিখ *</span>
       <button
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label="Exam date"
+        aria-label="পরীক্ষার তারিখ"
         onClick={() => setOpen((current) => !current)}
         disabled={disabled}
         className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60"
@@ -82,9 +82,7 @@ export function SvpDateCalendar({
           {value ? (
             formatDate(value)
           ) : (
-            <span className="text-muted-foreground">
-              {loading ? "Loading available dates…" : "Select an available date"}
-            </span>
+            <span className="text-muted-foreground">{loading ? "তারিখ আসছে…" : "তারিখ বাছুন"}</span>
           )}
         </span>
         <ChevronDown className={`h-4 w-4 shrink-0 opacity-60 ${open ? "rotate-180" : ""}`} />
@@ -93,12 +91,12 @@ export function SvpDateCalendar({
       {open && (
         <div
           role="dialog"
-          aria-label="Available exam dates"
+          aria-label="খালি তারিখ"
           className="absolute z-30 mt-1 w-full space-y-3 rounded-xl border bg-popover p-3 shadow-lg"
         >
           {onMonthChange && monthOptions && (
             <select
-              aria-label="Month to check"
+              aria-label="মাস"
               value={month}
               onChange={(event) => onMonthChange(event.target.value)}
               disabled={loading}
@@ -113,7 +111,7 @@ export function SvpDateCalendar({
           )}
           {options.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              {loading ? "Loading available dates…" : "No dates with free seats for this city."}
+              {loading ? "তারিখ আসছে…" : "এখন কোনো খালি তারিখ নেই।"}
             </p>
           ) : (
             months.map(([key, list]) => (
@@ -145,7 +143,7 @@ export function SvpDateCalendar({
                         </span>
                         {option.seats !== null && option.seats !== undefined && (
                           <span className="mt-0.5 block text-[10px] font-normal opacity-80">
-                            {option.seats} seat{option.seats === 1 ? "" : "s"}
+                            {option.seats} আসন
                           </span>
                         )}
                       </button>
@@ -156,11 +154,9 @@ export function SvpDateCalendar({
             ))
           )}
           <div className="flex items-center justify-between gap-2 border-t pt-2">
-            <p className="text-[11px] text-muted-foreground">
-              Green dates have seats available on SVP.
-            </p>
+            <p className="text-[11px] text-muted-foreground">সবুজ তারিখে আসন খালি আছে।</p>
             <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
-              Close
+              বন্ধ করুন
             </Button>
           </div>
         </div>

@@ -20,7 +20,7 @@ export function SvpSessionOptions({
   disabled?: boolean;
 }) {
   return (
-    <div className="grid min-w-0 gap-2 sm:grid-cols-2" role="group" aria-label="Test centers">
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2" role="group" aria-label="পরীক্ষাকেন্দ্র">
       {views.map((view) => {
         const time = formatSvpTimeRange(view.startAt, view.endAt);
         return (
@@ -49,11 +49,11 @@ export function SvpSessionOptions({
             )}
             <span className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-3">
               <span>
-                <span className="block text-xs text-muted-foreground">Time</span>
+                <span className="block text-xs text-muted-foreground">সময়</span>
                 <span className="block font-medium">{time}</span>
               </span>
               <span>
-                <span className="block text-xs text-muted-foreground">Seats</span>
+                <span className="block text-xs text-muted-foreground">খালি আসন</span>
                 <span className="block font-medium">{view.seats ?? "—"}</span>
               </span>
             </span>

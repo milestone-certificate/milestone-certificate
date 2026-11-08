@@ -21,7 +21,12 @@ import {
   type Exam,
 } from "@/lib/data";
 import { useServerFn } from "@tanstack/react-start";
-import { checkSvpResult, checkSvpExamResult, listSvpOccupations } from "@/lib/svp.functions";
+import {
+  getSvpResultAutomationStatus,
+  checkSvpResult,
+  checkSvpExamResult,
+  listSvpOccupations,
+} from "@/lib/svp.functions";
 import { matchingPendingSvpExams } from "@/lib/svp-result.shared";
 import type { SvpCheck } from "@/lib/svp.functions";
 import { ResultShareActions } from "@/components/app/ResultListShare";
@@ -46,6 +51,11 @@ function ResultsPage() {
   const { data: occ } = useQuery(occQ);
   const { data: ttc } = useQuery(ttcQ);
   const refresh = useRefreshAll();
+  const { data: automation } = useQuery({
+    queryKey: ["svp-result-automation"],
+    queryFn: () => getSvpResultAutomationStatus(),
+    refetchInterval: 60000,
+  });
   const occName = lookup(occ);
   const ttcName = lookup(ttc);
   const candMap = useMemo(() => new Map(cands.map((c) => [c.id, c])), [cands]);
@@ -159,6 +169,21 @@ function ResultsPage() {
   return (
     <div>
       <PageHeader title="রেজাল্ট" subtitle="অটোমেটিক রেজাল্ট চেক ও ম্যানুয়াল এন্ট্রি" />
+      <div className="rounded-xl border bg-card p-3 text-sm" role="status">
+        <span className="font-semibold">
+          অটো চেক {automation ? (automation.enabled ? "চালু" : "বন্ধ") : "·"}
+        </span>
+        <span className="text-muted-foreground"> · পরীক্ষা শুরুর ২ ঘণ্টা পর, প্রতি ৫ মিনিটে</span>
+        {automation?.lastRunAt && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            সর্বশেষ চালু:{" "}
+            {new Date(automation.lastRunAt).toLocaleString("bn-BD", { timeZone: "Asia/Dhaka" })}
+            {automation.missingInfo > 0
+              ? ` · ${automation.missingInfo}টি পরীক্ষার সময় বা পরিচয় অসম্পূর্ণ`
+              : ""}
+          </p>
+        )}
+      </div>
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="card-surface space-y-3 p-4 lg:col-span-2">
           <h3 className="text-base font-semibold">SVP অটোমেটিক রেজাল্ট চেক</h3>

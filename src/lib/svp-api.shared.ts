@@ -468,7 +468,7 @@ export function parseSvpAvailableDates(payload: unknown): SvpAvailableDate[] {
     if (!startAt) continue;
     const normalizedStartAt = normalizeSvpDate(startAt);
     const center = asRecord(record["test_center"]);
-    const key = `${normalizedStartAt}|${text(center?.["city"]) ?? ""}`;
+    const key = `${normalizedStartAt}|${text(center?.["city"]) ?? text(record["city"]) ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     dates.push({
@@ -705,7 +705,11 @@ export function parseSvpReservationDetail(payload: unknown): SvpReservationDetai
     startAt: text(session?.["start_at_in_tc_time_zone"]) ?? text(session?.["start_at"]),
     methodology: text(reservation["methodology"]),
     canBeRescheduled: parseSvpFlag(reservation["can_be_rescheduled"]),
-    categoryId: number(reservation["category_id"]) ?? number(category?.["id"]),
+    categoryId:
+      number(reservation["category_id"]) ??
+      number(category?.["id"]) ??
+      number(session?.["category_id"]) ??
+      number(occupation?.["category_id"]),
     examSessionId:
       typeof session?.["id"] === "string" ? session["id"] : (number(session?.["id"]) ?? null),
     duration: number(session?.["duration"]) ?? number(reservation["duration"]),

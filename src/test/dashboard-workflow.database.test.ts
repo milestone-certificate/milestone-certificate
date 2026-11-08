@@ -47,6 +47,7 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
       "migrations/20261108201000_verified_appointment_catalog.sql",
       "migrations/20261108202000_atomic_appointment_verification.sql",
       "migrations/20261109020000_verified_svp_exam_results.sql",
+      "migrations/20261109030000_svp_result_automation.sql",
     ])
       await sql.unsafe(await readFile(new URL(`../../supabase/${f}`, import.meta.url), "utf8"));
     for (const [role, id] of Object.entries(ids)) {
@@ -57,6 +58,7 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
     }
   });
   beforeEach(async () => {
+    await sql`UPDATE svp_result_automation_state SET enabled=false`;
     await sql.unsafe(
       "TRUNCATE job_submissions,candidates,exams,results,payments,work_notes,storage.objects,appointment_extractions",
     );
@@ -479,5 +481,88 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
     expect((await sql`SELECT status FROM appointment_extractions WHERE id=${e.id}`)[0].status).toBe(
       "needs_review",
     );
+  });
+  const pendingAutoExam = async (agoMinutes = 121) => {
+    const [occupation] = await sql`SELECT id FROM occupations WHERE svp_key='933301'`;
+    const [candidate] =
+      await sql`INSERT INTO candidates(name,passport_no,occupation_id) VALUES('AUTO TEST','A1234567',${occupation.id}) RETURNING id`;
+    return (
+      await sql`INSERT INTO exams(candidate_id,occupation_id,exam_date,exam_time,result)
+      VALUES(${candidate.id},${occupation.id},to_char((now()-make_interval(mins=>${agoMinutes})) AT TIME ZONE 'Asia/Dhaka','YYYY-MM-DD'),
+      to_char((now()-make_interval(mins=>${agoMinutes})) AT TIME ZONE 'Asia/Dhaka','HH24:MI:SS'),'PENDING') RETURNING *`
+    )[0];
+  };
+  const claimAuto = async () =>
+    (await sql`SELECT claim_svp_auto_result_checks(4) AS batch`)[0].batch as Array<{
+      examId: string;
+      leaseToken: string;
+      examDate: string;
+      snapshot: Record<string, string>;
+    }>;
+  it("waits two hours, leases once, retries only after five minutes, and stops on a verified final result", async () => {
+    const before = await pendingAutoExam(119);
+    const due = await pendingAutoExam(121);
+    expect(await claimAuto()).toHaveLength(0); // Disabled until the scheduler is installed.
+    await sql`UPDATE svp_result_automation_state SET enabled=true`;
+    const claimed = await claimAuto();
+    expect(claimed.map((x) => x.examId)).toEqual([due.id]);
+    expect(await claimAuto()).toHaveLength(0);
+    await sql`SELECT finish_svp_auto_result_check(${due.id},${claimed[0].leaseToken},'pending')`;
+    expect(await claimAuto()).toHaveLength(0);
+    await sql`UPDATE exams SET svp_auto_checked_at=now()-interval '5 minutes' WHERE id=${due.id}`;
+    const retried = (await claimAuto())[0];
+    expect(retried.leaseToken).not.toBe(claimed[0].leaseToken);
+    const saved = (
+      await sql`SELECT apply_verified_svp_exam_result(${due.id},${sql.json(retried.snapshot)},'PASS',${due.exam_date}) AS saved`
+    )[0].saved;
+    expect(saved).toMatchObject({ ok: true });
+    await sql`SELECT finish_svp_auto_result_check(${due.id},${retried.leaseToken},'saved')`;
+    expect(await claimAuto()).toHaveLength(0);
+    expect((await sql`SELECT result FROM exams WHERE id=${before.id}`)[0].result).toBe("PENDING");
+    expect((await sql`SELECT count(*)::int AS n FROM results WHERE exam_id=${due.id}`)[0].n).toBe(
+      1,
+    );
+  });
+  it("invalidates an automatic result lease on reschedule and refuses expired leases", async () => {
+    const exam = await pendingAutoExam();
+    await sql`UPDATE svp_result_automation_state SET enabled=true`;
+    const first = (await claimAuto())[0];
+    await sql`UPDATE exams SET svp_auto_lease_until=now()-interval '1 second' WHERE id=${exam.id}`;
+    expect(
+      (
+        await sql`SELECT apply_verified_svp_exam_result(${exam.id},${sql.json(first.snapshot)},'PASS',${exam.exam_date}) AS r`
+      )[0].r.ok,
+    ).toBe(false);
+    await sql`UPDATE exams SET exam_date='2099-01-01' WHERE id=${exam.id}`;
+    const changed = (
+      await sql`SELECT svp_auto_lease_token,svp_auto_checked_at FROM exams WHERE id=${exam.id}`
+    )[0];
+    expect(changed.svp_auto_lease_token).toBeNull();
+    expect(changed.svp_auto_checked_at).toBeNull();
+    expect(await claimAuto()).toHaveLength(0);
+    expect(
+      (
+        await sql`SELECT apply_verified_svp_exam_result(${exam.id},${sql.json(first.snapshot)},'PASS',${exam.exam_date}) AS r`
+      )[0].r.ok,
+    ).toBe(false);
+  });
+  it("parses Dhaka 24-hour/AM-PM times and skips missing or invalid start times", async () => {
+    const [r] = await sql`SELECT svp_exam_start_at('2026-11-09','12:00 AM') AS midnight,
+      svp_exam_start_at('2026-11-09','12:00 PM') AS noon,svp_exam_start_at('2026-11-09','23:59') AS late,
+      svp_exam_start_at('2026-11-09','24:00') AS invalid,svp_exam_start_at('2026-02-30','09:00') AS invalid_date`;
+    expect(r.midnight.toISOString()).toBe("2026-11-08T18:00:00.000Z");
+    expect(r.noon.toISOString()).toBe("2026-11-09T06:00:00.000Z");
+    expect(r.late.toISOString()).toBe("2026-11-09T17:59:00.000Z");
+    expect(r.invalid).toBeNull();
+    expect(r.invalid_date).toBeNull();
+    await pendingAutoExam();
+    await sql`UPDATE exams SET exam_time=null`;
+    await sql`UPDATE svp_result_automation_state SET enabled=true`;
+    expect(await claimAuto()).toHaveLength(0);
+    expect((await sql`SELECT svp_result_automation_status() AS s`)[0].s.missingInfo).toBe(1);
+    for (const role of ["customer", "agent", "staff", "admin"])
+      await expect(
+        asUser(role, (tx) => tx`SELECT claim_svp_auto_result_checks(4)`),
+      ).rejects.toThrow(/permission denied/);
   });
 });

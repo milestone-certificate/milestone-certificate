@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({ submit: vi.fn(), resend: vi.fn(), storedOtp: v
 vi.mock("@/lib/svp-session.functions", () => ({
   submitSvpLogin: mocks.submit,
   resendSvpOtp: mocks.resend,
+  resendStoredSvpOtp: mocks.resend,
   submitStoredSvpOtp: mocks.storedOtp,
 }));
 
@@ -45,33 +46,33 @@ describe("SVP login panel", () => {
   it("shows only username and password before login; system fields stay hidden", () => {
     render(<SvpLoginPanel />);
 
-    expect(screen.getByLabelText("SVP username")).toBeInTheDocument();
-    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("SVP ইমেইল")).toBeInTheDocument();
+    expect(screen.getByLabelText("পাসওয়ার্ড")).toHaveAttribute("type", "password");
     expect(screen.queryByLabelText("fe_app")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("otp_method")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("locale")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("One-time password (OTP)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("OTP কোড")).not.toBeInTheDocument();
   });
 
   it("submits only username/password then advances to the OTP input", async () => {
     mocks.submit.mockResolvedValueOnce(loginAccepted);
     render(<SvpLoginPanel />);
 
-    fireEvent.change(screen.getByLabelText("SVP username"), {
+    fireEvent.change(screen.getByLabelText("SVP ইমেইল"), {
       target: { value: "candidate-login" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    fireEvent.change(screen.getByLabelText("পাসওয়ার্ড"), {
       target: { value: "password-value" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
 
     await waitFor(() =>
       expect(mocks.submit).toHaveBeenCalledWith({
         data: { step: "login", login: "candidate-login", password: "password-value" },
       }),
     );
-    expect(await screen.findByLabelText("One-time password (OTP)")).toBeInTheDocument();
-    expect(screen.getByText(/Enter the OTP sent to the registered email/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText("OTP কোড")).toBeInTheDocument();
+    expect(screen.getByText(/ইমেইলে OTP পাঠানো হয়েছে/)).toBeInTheDocument();
     expect(screen.queryByLabelText("fe_app")).not.toBeInTheDocument();
   });
 
@@ -79,18 +80,18 @@ describe("SVP login panel", () => {
     mocks.submit.mockResolvedValueOnce(loginAccepted).mockResolvedValueOnce(otpAccepted);
     render(<SvpLoginPanel />);
 
-    fireEvent.change(screen.getByLabelText("SVP username"), {
+    fireEvent.change(screen.getByLabelText("SVP ইমেইল"), {
       target: { value: "candidate-login" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    fireEvent.change(screen.getByLabelText("পাসওয়ার্ড"), {
       target: { value: "password-value" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByLabelText("One-time password (OTP)");
-    fireEvent.change(screen.getByLabelText("One-time password (OTP)"), {
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
+    await screen.findByLabelText("OTP কোড");
+    fireEvent.change(screen.getByLabelText("OTP কোড"), {
       target: { value: "123456" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Verify OTP" }));
+    fireEvent.click(screen.getByRole("button", { name: "OTP যাচাই" }));
 
     await waitFor(() =>
       expect(mocks.submit).toHaveBeenLastCalledWith({
@@ -102,7 +103,7 @@ describe("SVP login panel", () => {
         },
       }),
     );
-    expect(await screen.findByText("Signed in to SVP.")).toBeInTheDocument();
+    expect(await screen.findByText("সংযোগ হয়েছে")).toBeInTheDocument();
   });
 
   it("keeps the login step and shows the provider error when SVP rejects the credentials", async () => {
@@ -117,36 +118,34 @@ describe("SVP login panel", () => {
     });
     render(<SvpLoginPanel />);
 
-    fireEvent.change(screen.getByLabelText("SVP username"), {
+    fireEvent.change(screen.getByLabelText("SVP ইমেইল"), {
       target: { value: "candidate-login" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    fireEvent.change(screen.getByLabelText("পাসওয়ার্ড"), {
       target: { value: "password-value" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "SVP rejected this username or password.",
-    );
-    expect(screen.queryByLabelText("One-time password (OTP)")).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("ইমেইল ও পাসওয়ার্ড মিলিয়ে নিন।");
+    expect(screen.queryByLabelText("OTP কোড")).not.toBeInTheDocument();
   });
 
   it("reset clears the in-memory form and returns to username/password", async () => {
     mocks.submit.mockResolvedValueOnce(loginAccepted);
     render(<SvpLoginPanel />);
-    fireEvent.change(screen.getByLabelText("SVP username"), {
+    fireEvent.change(screen.getByLabelText("SVP ইমেইল"), {
       target: { value: "candidate-login" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    fireEvent.change(screen.getByLabelText("পাসওয়ার্ড"), {
       target: { value: "password-value" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByLabelText("One-time password (OTP)");
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
+    await screen.findByLabelText("OTP কোড");
+    fireEvent.click(screen.getByRole("button", { name: "মুছুন" }));
 
-    expect(screen.getByLabelText("SVP username")).toHaveValue("");
-    expect(screen.getByLabelText("Password")).toHaveValue("");
-    expect(screen.queryByLabelText("One-time password (OTP)")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("SVP ইমেইল")).toHaveValue("");
+    expect(screen.getByLabelText("পাসওয়ার্ড")).toHaveValue("");
+    expect(screen.queryByLabelText("OTP কোড")).not.toBeInTheDocument();
   });
 });
 
@@ -155,26 +154,24 @@ describe("SVP OTP resend", () => {
     mocks.submit.mockResolvedValueOnce(loginAccepted);
     render(<SvpLoginPanel />);
 
-    fireEvent.change(screen.getByLabelText("SVP username"), {
+    fireEvent.change(screen.getByLabelText("SVP ইমেইল"), {
       target: { value: "candidate-login" },
     });
-    fireEvent.change(screen.getByLabelText("Password"), {
+    fireEvent.change(screen.getByLabelText("পাসওয়ার্ড"), {
       target: { value: "password-value" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByLabelText("One-time password (OTP)");
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
+    await screen.findByLabelText("OTP কোড");
 
-    fireEvent.click(screen.getByRole("button", { name: "Resend OTP" }));
+    fireEvent.click(screen.getByRole("button", { name: "নতুন OTP" }));
 
     await waitFor(() =>
       expect(mocks.resend).toHaveBeenCalledWith({
         data: { login: "candidate-login", password: "password-value" },
       }),
     );
-    expect(
-      await screen.findByText("A new OTP has been sent to the registered email."),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Resend in \d+s/ })).toBeDisabled();
+    expect(await screen.findByText("নতুন OTP পাঠানো হয়েছে")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /\d+ সেকেন্ড পরে/ })).toBeDisabled();
   });
 
   it("reconnect mode asks only for the OTP and completes with the stored password", async () => {
@@ -182,16 +179,56 @@ describe("SVP OTP resend", () => {
 
     render(<SvpLoginPanel otpOnly login="noor@example.com" />);
 
-    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
-    expect(screen.getByText(/OTP sent for noor@example.com/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("পাসওয়ার্ড")).not.toBeInTheDocument();
+    expect(screen.getByText(/noor@example.com–এ পাঠানো OTP/)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("One-time password (OTP)"), {
+    fireEvent.change(screen.getByLabelText("OTP কোড"), {
       target: { value: "123456" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Verify OTP" }));
+    fireEvent.click(screen.getByRole("button", { name: "OTP যাচাই" }));
 
     await waitFor(() =>
       expect(mocks.storedOtp).toHaveBeenCalledWith({ data: { otpAttempt: "123456" } }),
     );
+  });
+});
+
+describe("SVP OTP mailbox option", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+  it("opens the chosen Yopmail alias only after a successful OTP request", async () => {
+    const replace = vi.fn();
+    const close = vi.fn();
+    const popup = { closed: false, opener: window, location: { replace }, close };
+    const open = vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    mocks.submit.mockResolvedValue(loginAccepted);
+    render(<SvpLoginPanel />);
+    fireEvent.change(screen.getByLabelText("SVP ইমেইল"), {
+      target: { value: "a13291235@dakbox.net" },
+    });
+    fireEvent.change(screen.getByLabelText("পাসওয়ার্ড"), { target: { value: "fixture-password" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "OTP পাঠালে Yopmail খুলুন" }));
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "পরের ধাপ" }));
+    await screen.findByLabelText("OTP কোড");
+    expect(open).toHaveBeenCalledWith("about:blank", "svp-otp-mail");
+    expect(replace).toHaveBeenCalledWith("https://yopmail.com/?login=a13291235");
+    expect(popup.opener).toBeNull();
+    expect(screen.getByRole("link", { name: "Yopmail খুলুন" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer",
+    );
+  });
+  it("offers stored-account resend and keeps reset on the OTP step", async () => {
+    mocks.resend.mockResolvedValue({ ok: true, message: "sent" });
+    render(<SvpLoginPanel otpOnly login="test@yopmail.com" />);
+    fireEvent.click(screen.getByRole("button", { name: "নতুন OTP" }));
+    await waitFor(() => expect(mocks.resend).toHaveBeenCalledWith());
+    fireEvent.click(screen.getByRole("button", { name: "মুছুন" }));
+    expect(screen.getByLabelText("OTP কোড")).toHaveValue("");
+    expect(screen.queryByLabelText("পাসওয়ার্ড")).not.toBeInTheDocument();
   });
 });

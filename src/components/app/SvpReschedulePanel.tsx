@@ -1,3 +1,4 @@
+import { svpLanguageLabel } from "@/lib/svp-mail";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, LoaderCircle, RotateCcw, X } from "lucide-react";
@@ -9,6 +10,7 @@ import { SvpDateCalendar } from "@/components/app/SvpDateCalendar";
 import { formatSvpDateTime } from "@/lib/svp-time";
 import {
   getSvpReservationDetail,
+  getSvpOccupationById,
   listSvpExamSessions,
   listSvpPrometricSites,
   listSvpPrometricSlots,
@@ -147,7 +149,22 @@ export function SvpReschedulePanel({
         ? currentLanguageCode
         : (languageOptions[0]?.code ?? "en");
   const effectiveCountryId = detail?.countryId ?? countryId ?? null;
-  const effectiveCategoryId = detail?.categoryId ?? categoryId ?? null;
+  const categoryQuery = useQuery({
+    queryKey: ["svp-reschedule-category", reservationId, detail?.occupationId],
+    queryFn: () => getSvpOccupationById({ data: { occupationId: detail!.occupationId! } }),
+    enabled:
+      isTargeted &&
+      detail != null &&
+      detail.categoryId == null &&
+      categoryId == null &&
+      detail.occupationId != null,
+    retry: false,
+  });
+  const effectiveCategoryId =
+    detail?.categoryId ??
+    categoryId ??
+    (categoryQuery.data?.ok ? categoryQuery.data.data.categoryId : null);
+  const selectedCity = city || (isTargeted ? detail?.city : "") || "";
   // SVP-owned codes to retry with when SVP rejects the selected language, like booking.
   const fallbackLanguageCodes = useMemo(
     () =>
@@ -176,7 +193,8 @@ export function SvpReschedulePanel({
   const dateOptions = useMemo(() => {
     const map = new Map<string, SvpAvailableDate>();
     for (const entry of dates) {
-      if (city && entry.city !== city) continue;
+      if (city && entry.city && entry.city.trim().toLowerCase() !== city.trim().toLowerCase())
+        continue;
       const { date } = splitDateTime(entry.startAt);
       if (date && !map.has(date)) map.set(date, entry);
     }
@@ -320,7 +338,7 @@ export function SvpReschedulePanel({
     [takamolSlotMappings],
   );
   const sessionDate = selectedDate ? splitDateTime(selectedDate.startAt).date : "";
-  const sessionCity = selectedDate?.city ?? city;
+  const sessionCity = selectedDate?.city ?? selectedCity;
   const sessionsQuery = useQuery({
     queryKey: ["svp-reschedule-sessions", effectiveCategoryId, sessionCity, sessionDate],
     queryFn: () =>
@@ -473,7 +491,9 @@ export function SvpReschedulePanel({
         dates.find(
           (candidate) =>
             splitDateTime(candidate.startAt).date === entry.date &&
-            (!entry.city || candidate.city === entry.city),
+            (!entry.city ||
+              !candidate.city ||
+              candidate.city.trim().toLowerCase() === entry.city.trim().toLowerCase()),
         ) ?? null,
       );
       if (entry.city) setCity(entry.city);
@@ -533,7 +553,7 @@ export function SvpReschedulePanel({
         className="flex items-center gap-2 rounded-2xl border bg-card p-5 text-sm text-muted-foreground"
         role="status"
       >
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading reservation…
+        <LoaderCircle className="h-4 w-4 animate-spin" /> বুকিং আসছে…
       </section>
     );
   }
@@ -541,7 +561,7 @@ export function SvpReschedulePanel({
   if (detailQuery.isError || (detailQuery.data && !detailQuery.data.ok)) {
     return (
       <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
-        <h2 className="text-lg font-bold">Reschedule appointment</h2>
+        <h2 className="text-lg font-bold">তারিখ বদল</h2>
         <Button
           type="button"
           variant="outline"
@@ -552,10 +572,10 @@ export function SvpReschedulePanel({
           }
         >
           <RotateCcw className="mr-1 h-4 w-4" />
-          {detailNeedsSignIn && onReconnect ? "Reconnect to SVP" : "Retry reservation"}
+          {detailNeedsSignIn && onReconnect ? "সংযোগ করুন" : "আবার দেখুন"}
         </Button>
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          <X className="mr-1 h-4 w-4" /> Close
+          <X className="mr-1 h-4 w-4" /> বন্ধ করুন
         </Button>
       </section>
     );
@@ -568,12 +588,12 @@ export function SvpReschedulePanel({
   if (rescheduleTimes !== null && rescheduleTimes <= 0) {
     return (
       <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
-        <h2 className="text-lg font-bold">Reschedule appointment</h2>
+        <h2 className="text-lg font-bold">তারিখ বদল</h2>
         <Button type="button" variant="outline" disabled>
-          Reschedule unavailable
+          এখন তারিখ বদলানো যাবে না
         </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Close
+          বন্ধ করুন
         </Button>
       </section>
     );
@@ -596,9 +616,9 @@ export function SvpReschedulePanel({
             <CheckCircle2 className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-bold">Appointment rescheduled</h2>
+            <h2 className="text-lg font-bold">তারিখ বদল হয়েছে</h2>
             <p className="text-sm text-muted-foreground">
-              New session: {appointment ? formatSvpDateTime(appointment.startAt) : "—"}
+              নতুন সময়: {appointment ? formatSvpDateTime(appointment.startAt) : "—"}
             </p>
             {appointment?.centerName && (
               <p className="text-xs text-muted-foreground">{appointment.centerName}</p>
@@ -606,7 +626,7 @@ export function SvpReschedulePanel({
           </div>
         </div>
         <Button type="button" onClick={() => onDone(appointment)}>
-          Done
+          ঠিক আছে
         </Button>
       </section>
     );
@@ -615,12 +635,12 @@ export function SvpReschedulePanel({
   if (!detail.canBeRescheduled) {
     return (
       <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
-        <h2 className="text-lg font-bold">Reschedule appointment</h2>
+        <h2 className="text-lg font-bold">তারিখ বদল</h2>
         <Button type="button" variant="outline" disabled>
-          Reschedule unavailable
+          এখন তারিখ বদলানো যাবে না
         </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Close
+          বন্ধ করুন
         </Button>
       </section>
     );
@@ -629,7 +649,9 @@ export function SvpReschedulePanel({
   const cityOptions = isTargeted
     ? [
         ...new Set(
-          dates.map((entry) => entry.city).filter((entry): entry is string => Boolean(entry)),
+          [detail.city, ...dates.map((entry) => entry.city)].filter((entry): entry is string =>
+            Boolean(entry),
+          ),
         ),
       ]
     : [
@@ -643,7 +665,7 @@ export function SvpReschedulePanel({
     isTargeted
       ? dateOptions.map((entry) => ({
           date: splitDateTime(entry.startAt).date,
-          city: entry.city,
+          city: entry.city ?? (selectedCity || null),
           seats: entry.seats,
         }))
       : siteDateOptions;
@@ -698,42 +720,40 @@ export function SvpReschedulePanel({
     <section className="space-y-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-xl font-bold">Reschedule appointment</h2>
+          <h2 className="text-xl font-bold">তারিখ বদল</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {detail.occupationName ?? "Occupation"} · #{detail.id}
+            {detail.occupationName ?? "পেশা"} · #{detail.id}
             {detail.city || detail.centerName ? ` · ${detail.centerName ?? detail.city}` : ""}
           </p>
           <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock3 className="h-3.5 w-3.5" /> Current session:{" "}
+            <Clock3 className="h-3.5 w-3.5" /> বর্তমান সময়:{" "}
             {detail.startAt ? formatSvpDateTime(detail.startAt) : "—"}
-            {rescheduleTimes !== null ? ` · ${rescheduleTimes} reschedule(s) left` : ""}
+            {rescheduleTimes !== null ? ` · ${rescheduleTimes} বার বাকি` : ""}
           </p>
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          <X className="mr-1 h-4 w-4" /> Cancel
+          <X className="mr-1 h-4 w-4" /> বাতিল
         </Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="New city *">
+        <Field label="শহর *">
           <NativeSelect
-            value={manualCityMode ? MANUAL_CITY_OPTION : city}
+            value={manualCityMode ? MANUAL_CITY_OPTION : selectedCity}
             onChange={(event) => selectCity(event.target.value)}
             disabled={isTargeted ? datesQuery.isFetching : citiesQuery.isFetching}
             required
           >
-            <option value="">Select a city</option>
+            <option value="">শহর বাছুন</option>
             {cityOptions.map((entry) => (
               <option key={entry} value={entry}>
                 {entry}
               </option>
             ))}
-            {!isTargeted && (
-              <option value={MANUAL_CITY_OPTION}>Enter another city manually…</option>
-            )}
+            {!isTargeted && <option value={MANUAL_CITY_OPTION}>অন্য শহর লিখুন…</option>}
           </NativeSelect>
         </Field>
-        <Field label="Exam language">
+        <Field label="পরীক্ষার ভাষা">
           <NativeSelect
             value={activeLanguage}
             onChange={(event) => {
@@ -746,7 +766,7 @@ export function SvpReschedulePanel({
               : [{ code: "en", label: "English", questionCount: null, nonTargeted: false }]
             ).map((entry) => (
               <option key={entry.code} value={entry.code}>
-                {entry.label}
+                {svpLanguageLabel(entry.label)}
               </option>
             ))}
           </NativeSelect>
@@ -755,11 +775,11 @@ export function SvpReschedulePanel({
 
       {!isTargeted && manualCityMode && (
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <Field label="Manual city name">
+          <Field label="শহরের নাম">
             <Input
               value={manualCityName}
               onChange={(event) => setManualCityName(event.target.value)}
-              placeholder="Enter a city name"
+              placeholder="শহরের নাম লিখুন"
               autoComplete="address-level2"
               maxLength={100}
             />
@@ -770,14 +790,14 @@ export function SvpReschedulePanel({
             onClick={applyManualCity}
             disabled={!manualCityName.trim()}
           >
-            Check this city
+            খুঁজুন
           </Button>
         </div>
       )}
 
       {!isTargeted && citiesQuery.isFetching && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading cities…
+          <LoaderCircle className="h-4 w-4 animate-spin" /> শহর আসছে…
         </p>
       )}
       {!isTargeted && !citiesQuery.isFetching && (cityListFailed || cityListEmpty) && (
@@ -787,7 +807,7 @@ export function SvpReschedulePanel({
           size="sm"
           onClick={() => void citiesQuery.refetch()}
         >
-          Retry city list
+          শহর আবার দেখুন
         </Button>
       )}
       {isTargeted && effectiveCategoryId == null && (
@@ -795,13 +815,17 @@ export function SvpReschedulePanel({
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => void detailQuery.refetch()}
+          onClick={() => {
+            void detailQuery.refetch();
+            if (detail?.occupationId) void categoryQuery.refetch();
+          }}
         >
-          Retry reservation
+          আবার দেখুন
         </Button>
       )}
 
-      {datesFailed && (
+      {(datesFailed ||
+        (!datesLoading && shownDateOptions.length === 0 && effectiveCategoryId != null)) && (
         <Button
           type="button"
           variant="outline"
@@ -811,10 +835,10 @@ export function SvpReschedulePanel({
             datesNeedSignIn && onReconnect ? onReconnect() : void dateQuery.refetch()
           }
         >
-          {datesNeedSignIn && onReconnect ? "Reconnect to SVP" : "Retry dates"}
+          {datesNeedSignIn && onReconnect ? "সংযোগ করুন" : "তারিখ আবার দেখুন"}
         </Button>
       )}
-      {(shownDateOptions.length > 0 || datesLoading || Boolean(city.trim())) && (
+      {(isTargeted || Boolean(city.trim())) && (
         <SvpDateCalendar
           options={shownDateOptions}
           value={activeDateValue}
@@ -840,10 +864,10 @@ export function SvpReschedulePanel({
 
       {activeDateValue && (
         <div className="space-y-2">
-          <p className="text-sm font-medium">Test center</p>
+          <p className="text-sm font-medium">পরীক্ষাকেন্দ্র</p>
           {sessionsLoading && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading sessions…
+              <LoaderCircle className="h-4 w-4 animate-spin" /> সময় ও আসন আসছে…
             </p>
           )}
           {sessionsFailed && (
@@ -856,7 +880,7 @@ export function SvpReschedulePanel({
                 sessionsNeedSignIn && onReconnect ? onReconnect() : void availabilityQuery.refetch()
               }
             >
-              {sessionsNeedSignIn && onReconnect ? "Reconnect to SVP" : "Retry sessions"}
+              {sessionsNeedSignIn && onReconnect ? "সংযোগ করুন" : "আবার দেখুন"}
             </Button>
           )}
           {!isTargeted &&
@@ -869,12 +893,12 @@ export function SvpReschedulePanel({
                 size="sm"
                 onClick={() => void takamolSessionsQuery.refetch()}
               >
-                Retry centers
+                কেন্দ্র আবার দেখুন
               </Button>
             )}
           {!sessionsLoading && sessionsLoaded && sessionViews.length === 0 && (
             <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-              No sessions available.
+              এখন কোনো আসন নেই।
             </p>
           )}
           <SvpSessionOptions views={sessionViews} disabled={sessionsLoading || sessionsFailed} />
@@ -894,7 +918,7 @@ export function SvpReschedulePanel({
           ) : (
             <RotateCcw className="mr-2 h-4 w-4" />
           )}
-          Confirm reschedule
+          তারিখ বদল নিশ্চিত করুন
         </Button>
         {rescheduleMutation.isError && (
           <Button
@@ -906,7 +930,7 @@ export function SvpReschedulePanel({
               void availabilityQuery.refetch();
             }}
           >
-            Review booking
+            বুকিং দেখুন
           </Button>
         )}
       </div>

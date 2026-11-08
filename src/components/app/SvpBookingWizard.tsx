@@ -1,3 +1,5 @@
+import { svpLanguageLabel } from "@/lib/svp-mail";
+import { autoOpenSvpMail, setAutoOpenSvpMail, reserveSvpMail, svpMailboxUrl } from "@/lib/svp-mail";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -46,7 +48,6 @@ import {
   downloadSvpTicket,
   getSvpAccountOverview,
   getSvpBookingSetup,
-  getSvpDiagnostics,
   getSvpOccupationById,
   getSvpExamSessionById,
   getSvpReservationDetail,
@@ -61,7 +62,6 @@ import {
   listSvpTestCenterCities,
   searchSvpOccupations,
   type SvpBookingResult,
-  type SvpDiagnostics,
 } from "@/lib/svp-booking.functions";
 import { lookupTakamolAvailability } from "@/lib/takamol-availability.functions";
 import { parseOccupationLanguages } from "@/lib/takamol-availability.ui";
@@ -179,9 +179,9 @@ function savePdfBase64(base64: string, contentType: string, fileName: string): v
 
 function BookingStepper({ stage }: { stage: Stage }) {
   const steps = [
-    { key: "select", title: "Occupation & center", icon: BriefcaseBusiness },
-    { key: "dates", title: "Date & session", icon: CalendarDays },
-    { key: "confirm", title: "Confirm", icon: ShieldCheck },
+    { key: "select", title: "পেশা ও শহর", icon: BriefcaseBusiness },
+    { key: "dates", title: "তারিখ ও সময়", icon: CalendarDays },
+    { key: "confirm", title: "নিশ্চিত", icon: ShieldCheck },
   ] as const;
   const activeIndex = stage === "select" ? 0 : stage === "dates" ? 1 : stage === "confirm" ? 2 : 3;
 
@@ -240,11 +240,12 @@ export function SvpBookingWizard() {
   });
   const accounts = accountsQuery.data?.accounts ?? [];
   const [addAccountOpen, setAddAccountOpen] = useState(false);
+  const reconnectMail = useRef<ReturnType<typeof reserveSvpMail>>(null);
+  const [openMail, setOpenMail] = useState(autoOpenSvpMail);
   const [reconnectLogin, setReconnectLogin] = useState<string | null>(null);
   const [forceTargeted, setForceTargeted] = useState(false);
   const [occupationLookup, setOccupationLookup] = useState(false);
   const [manualCategoryId, setManualCategoryId] = useState<number | null>(null);
-  const [diagnostics, setDiagnostics] = useState<SvpDiagnostics | null>(null);
   const selectionTokenRef = useRef(0);
   const occupationBoxRef = useRef<HTMLDivElement | null>(null);
   const signedIn = Boolean(status?.signedIn);
@@ -1048,17 +1049,6 @@ export function SvpBookingWizard() {
     if (prometricDate) void slotsQuery.refetch();
   };
 
-  const diagnosticsMutation = useMutation({
-    mutationFn: async () => {
-      const response = await getSvpDiagnostics();
-      if (!response.ok) throw new Error(response.message);
-      return response.data;
-    },
-    onSuccess: (data) => setDiagnostics(data),
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Diagnostics could not run."),
-  });
-
   const startNewBooking = () => {
     resetFlow();
     setAddAccountOpen(false);
@@ -1438,15 +1428,27 @@ export function SvpBookingWizard() {
   const reconnectMutation = useMutation({
     mutationFn: (login: string) => reconnectSvpAccount({ data: { login } }),
     onSuccess: (response, login) => {
+      reconnectMail.current?.finish(response.ok && response.otpRequired !== false);
+      reconnectMail.current = null;
       if (!response.ok) {
         toast.error(response.message);
+        return;
+      }
+      if (response.otpRequired === false) {
+        setReconnectLogin(null);
+        invalidateSvpData();
+        toast.success(response.message);
         return;
       }
       setReconnectLogin(login);
       setAddAccountOpen(false);
       toast.success(response.message);
     },
-    onError: () => toast.error("SVP could not send the OTP. Try again."),
+    onError: () => {
+      reconnectMail.current?.finish(false);
+      reconnectMail.current = null;
+      toast.error("সংযোগ হয়নি। আবার চেষ্টা করুন।");
+    },
   });
 
   const switchMutation = useMutation({
@@ -1589,7 +1591,7 @@ export function SvpBookingWizard() {
         className="flex items-center gap-2 rounded-2xl border bg-card p-6 text-sm text-muted-foreground"
         role="status"
       >
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Checking the SVP session…
+        <LoaderCircle className="h-4 w-4 animate-spin" /> সংযোগ যাচাই হচ্ছে…
       </section>
     );
   }
@@ -1599,12 +1601,11 @@ export function SvpBookingWizard() {
       <div className="space-y-3">
         <div className="rounded-2xl border bg-card/80 p-4 shadow-sm">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            SVP booking workspace
+            SVP বুকিং
           </p>
-          <h1 className="mt-1 text-xl font-bold">New booking</h1>
+          <h1 className="mt-1 text-xl font-bold">নতুন বুকিং</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign in with the candidate&apos;s SVP account. After the OTP, this page opens the
-            booking form automatically.
+            পরীক্ষার্থীর SVP অ্যাকাউন্টে লগইন করুন।
           </p>
         </div>
         {sessionQuery.isError && (
@@ -1612,20 +1613,18 @@ export function SvpBookingWizard() {
             role="alert"
             className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
           >
-            The SVP session could not be checked. Sign in again.
+            সংযোগ যাচাই হয়নি। আবার লগইন করুন।
           </p>
         )}
         <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm">
-          Sign in to an SVP account. You can keep up to 4 accounts and switch between them without
-          entering the password and OTP again.
+          SVP লগইন করুন। সর্বোচ্চ ৪টি অ্যাকাউন্ট রাখা যাবে।
         </p>
         {(sessionQuery.data?.accountCount ?? 0) > 0 && (
           <p
             role="status"
             className="rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950"
           >
-            Your saved SVP session expired. Sign in again with the username and password to refresh
-            it.
+            সেশনের মেয়াদ শেষ। আবার লগইন করুন।
           </p>
         )}
         <SvpLoginPanel onSignedIn={handleSignedIn} />
@@ -1638,14 +1637,14 @@ export function SvpBookingWizard() {
       {addAccountOpen && (
         <section className="card-surface space-y-3 p-4 sm:p-5">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold">Add another SVP account</h2>
+            <h2 className="text-lg font-bold">SVP অ্যাকাউন্ট যোগ</h2>
             <Button
               type="button"
               size="sm"
               variant="ghost"
               onClick={() => setAddAccountOpen(false)}
             >
-              Cancel
+              বাতিল
             </Button>
           </div>
           <SvpLoginPanel onSignedIn={handleSignedIn} />
@@ -1658,11 +1657,9 @@ export function SvpBookingWizard() {
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200/20 bg-emerald-300/10 px-3 py-1 text-[11px] font-medium text-emerald-100">
               <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-emerald-300" />
-              Official SVP API · live · v28
+              সরাসরি SVP সংযোগ
             </div>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">
-              Book an SVP appointment
-            </h2>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">SVP বুকিং</h2>
           </div>
           <div className="w-full space-y-2 sm:w-auto">
             <Button
@@ -1676,7 +1673,7 @@ export function SvpBookingWizard() {
                 Boolean(result && localSaveStatus !== "saved")
               }
             >
-              <Plus className="mr-1 h-4 w-4" /> New booking
+              <Plus className="mr-1 h-4 w-4" /> নতুন বুকিং
             </Button>
           </div>
         </div>
@@ -1690,7 +1687,7 @@ export function SvpBookingWizard() {
             </div>
             <div>
               <p className="font-semibold">
-                Signed in to SVP{status?.userName ? ` as ${status.userName}` : ""}
+                সংযোগ আছে{status?.userName ? ` · ${status.userName}` : ""}
               </p>
               <p className="text-xs text-muted-foreground">
                 {status?.login}
@@ -1700,10 +1697,10 @@ export function SvpBookingWizard() {
                     ? ` · ${setup.permissions.countryName}`
                     : ""}
                 {status?.expiresAt
-                  ? ` · session valid until ${new Date(status.expiresAt * 1000).toLocaleTimeString(
-                      "en-GB",
-                      { hour: "2-digit", minute: "2-digit" },
-                    )}`
+                  ? ` · সেশন চলবে ${new Date(status.expiresAt * 1000).toLocaleTimeString("en-GB", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}`
                   : ""}
               </p>
             </div>
@@ -1715,7 +1712,7 @@ export function SvpBookingWizard() {
               onClick={startNewBooking}
               disabled={Boolean(result && localSaveStatus !== "saved")}
             >
-              <Plus className="mr-1 h-4 w-4" /> New booking
+              <Plus className="mr-1 h-4 w-4" /> নতুন বুকিং
             </Button>
             <Button
               type="button"
@@ -1727,11 +1724,11 @@ export function SvpBookingWizard() {
               <RefreshCw
                 className={`mr-1 h-4 w-4 ${overviewQuery.isFetching ? "animate-spin" : ""}`}
               />
-              Permissions
+              তথ্য দেখুন
             </Button>
             <a href={SVP_PORTAL_BOOKING_URL} target="_blank" rel="noreferrer">
               <Button type="button" variant="outline" size="sm">
-                <ExternalLink className="mr-1 h-4 w-4" /> Portal
+                <ExternalLink className="mr-1 h-4 w-4" /> SVP সাইট
               </Button>
             </a>
             <Button
@@ -1741,7 +1738,7 @@ export function SvpBookingWizard() {
               onClick={() => signOutMutation.mutate(false)}
               disabled={signOutMutation.isPending}
             >
-              <LogOut className="mr-1 h-4 w-4" /> Remove active
+              <LogOut className="mr-1 h-4 w-4" /> এই অ্যাকাউন্ট সরান
             </Button>
           </div>
         </div>
@@ -1757,14 +1754,13 @@ export function SvpBookingWizard() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              SVP accounts
+              SVP অ্যাকাউন্ট
             </p>
             <h2 id="svp-accounts" className="text-lg font-bold">
-              Active SVP account
+              আমার SVP অ্যাকাউন্ট
             </h2>
             <p className="text-xs text-muted-foreground">
-              {accounts.length} saved · Reconnect sends a fresh OTP with the saved email and
-              password.
+              {accounts.length}টি অ্যাকাউন্ট · সেশন শেষ হলে নতুন OTP নিন।
             </p>
           </div>
           <Button
@@ -1776,15 +1772,27 @@ export function SvpBookingWizard() {
               setAddAccountOpen(true);
             }}
           >
-            <Plus className="mr-1 h-4 w-4" /> Add account
+            <Plus className="mr-1 h-4 w-4" /> অ্যাকাউন্ট যোগ
           </Button>
         </div>
 
+        {accounts.some((account) => svpMailboxUrl(account.login)) && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={openMail}
+              onChange={(event) => {
+                setOpenMail(event.target.checked);
+                setAutoOpenSvpMail(event.target.checked);
+              }}
+            />{" "}
+            OTP পাঠালে Yopmail খুলুন
+          </label>
+        )}
         {reconnectLogin && (
           <div className="space-y-2">
             <p className="rounded-lg border border-primary/30 bg-primary/5 p-2 text-xs">
-              OTP sent to the saved email for {reconnectLogin}. Enter it below to reconnect — no
-              password needed.
+              {reconnectLogin}–এ পাঠানো OTP দিন।
             </p>
             <SvpLoginPanel
               key={reconnectLogin}
@@ -1824,18 +1832,15 @@ export function SvpBookingWizard() {
                 </p>
                 <p className="truncate text-xs text-muted-foreground">{account.login}</p>
                 <p className="text-[11px] text-muted-foreground">
-                  {account.active ? "Active account" : "Saved account"}
+                  {account.active ? "সক্রিয়" : "Saved account"}
                   {account.expiresAt > 0
-                    ? ` · session valid until ${new Date(account.expiresAt * 1000).toLocaleString(
-                        "en-GB",
-                        {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        },
-                      )}`
+                    ? ` · সেশন চলবে ${new Date(account.expiresAt * 1000).toLocaleString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
                     : ""}
                 </p>
               </div>
@@ -1848,17 +1853,18 @@ export function SvpBookingWizard() {
                     onClick={() => switchMutation.mutate(account.login)}
                     disabled={switchMutation.isPending}
                   >
-                    Use account
+                    ব্যবহার করুন
                   </Button>
                 )}
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => reconnectMutation.mutate(account.login)}
-                  disabled={
-                    reconnectMutation.isPending && reconnectMutation.variables === account.login
-                  }
+                  onClick={() => {
+                    reconnectMail.current = reserveSvpMail(account.login);
+                    reconnectMutation.mutate(account.login);
+                  }}
+                  disabled={reconnectMutation.isPending}
                 >
                   <RefreshCw
                     className={`mr-1 h-3.5 w-3.5 ${
@@ -1867,7 +1873,7 @@ export function SvpBookingWizard() {
                         : ""
                     }`}
                   />
-                  Reconnect
+                  সংযোগ যাচাই
                 </Button>
                 <Button
                   type="button"
@@ -1880,14 +1886,14 @@ export function SvpBookingWizard() {
                   }}
                   disabled={removeMutation.isPending}
                 >
-                  <XCircle className="mr-1 h-3.5 w-3.5" /> Delete
+                  <XCircle className="mr-1 h-3.5 w-3.5" /> মুছুন
                 </Button>
               </div>
             </div>
           ))}
           {accounts.length === 0 && !status?.login && (
             <p className="rounded-xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
-              No saved SVP accounts yet. Sign in once to save the email and password for reconnect.
+              এখনো কোনো অ্যাকাউন্ট যোগ করা হয়নি।
             </p>
           )}
         </div>
@@ -1900,7 +1906,7 @@ export function SvpBookingWizard() {
             onClick={() => signOutMutation.mutate(true)}
             disabled={signOutMutation.isPending}
           >
-            Sign out all
+            সব অ্যাকাউন্ট সরান
           </Button>
           {status?.login && (
             <Button
@@ -1910,7 +1916,7 @@ export function SvpBookingWizard() {
               onClick={() => signOutMutation.mutate(false)}
               disabled={signOutMutation.isPending}
             >
-              <LogOut className="mr-1 h-4 w-4" /> Remove active
+              <LogOut className="mr-1 h-4 w-4" /> এই অ্যাকাউন্ট সরান
             </Button>
           )}
         </div>
@@ -1946,17 +1952,16 @@ export function SvpBookingWizard() {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
                   <BriefcaseBusiness className="h-5 w-5" />
                 </span>
-                <h2 className="text-xl font-bold">Step 1 · Occupation and test center</h2>
+                <h2 className="text-xl font-bold">ধাপ ১ · পেশা ও শহর</h2>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                Use the signed-in candidate&apos;s SVP account. Only occupations linked to an SVP
-                category can be booked. Booking cost ৳{SVP_BOOKING_COST_BDT} per reservation.
+                পরীক্ষার্থীর নিজের SVP অ্যাকাউন্ট ব্যবহার করুন। বুকিং ফি ৳{SVP_BOOKING_COST_BDT}।
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="order-2 space-y-2">
-                <Field label="Exam language *">
+                <Field label="পরীক্ষার ভাষা *">
                   {languageChoices.length > 0 || !occupation ? (
                     <NativeSelect
                       value={activeLanguageCode}
@@ -1976,13 +1981,11 @@ export function SvpBookingWizard() {
                       required
                     >
                       <option value="">
-                        {languageChoices.length === 0
-                          ? "Select an occupation first"
-                          : "Select exam language"}
+                        {languageChoices.length === 0 ? "আগে পেশা বাছুন" : "ভাষা বাছুন"}
                       </option>
                       {languageChoices.map((entry) => (
                         <option key={entry.code} value={entry.code}>
-                          {entry.label}
+                          {svpLanguageLabel(entry.label)}
                         </option>
                       ))}
                     </NativeSelect>
@@ -1994,21 +1997,18 @@ export function SvpBookingWizard() {
                           event.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase(),
                         )
                       }
-                      placeholder="Enter the SVP language code"
+                      placeholder="SVP ভাষার কোড দিন"
                       maxLength={40}
                       required
                     />
                   )}
                 </Field>
                 {occupation && languageChoices.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Enter the SVP prometric language code for this occupation so the booking can be
-                    submitted.
-                  </p>
+                  <p className="text-xs text-muted-foreground">এই পেশার SVP ভাষার কোড দিন।</p>
                 )}
               </div>
               <div className="order-1 space-y-2">
-                <Field label="Occupation *">
+                <Field label="পেশা *">
                   <div className="relative" ref={occupationBoxRef}>
                     <Input
                       value={occupationSearch}
@@ -2017,7 +2017,7 @@ export function SvpBookingWizard() {
                         setOccupationOpen(true);
                       }}
                       onFocus={() => setOccupationOpen(true)}
-                      placeholder="Type a name, e.g. welder or loading"
+                      placeholder="পেশা খুঁজুন, যেমন Welder"
                       autoComplete="off"
                       aria-autocomplete="list"
                       required
@@ -2025,15 +2025,14 @@ export function SvpBookingWizard() {
                     {occupationOpen && (
                       <div
                         className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-popover p-1 shadow-lg"
-                        aria-label="Similar occupations"
+                        aria-label="মিলে যাওয়া পেশা"
                       >
                         {occupationSearchPending && (
                           <p
                             className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground"
                             role="status"
                           >
-                            <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Searching similar
-                            occupations…
+                            <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> পেশা খোঁজা হচ্ছে…
                           </p>
                         )}
                         {occupationSearchQuery.data && !occupationSearchQuery.data.ok && (
@@ -2046,13 +2045,12 @@ export function SvpBookingWizard() {
                           suggestions.length === 0 &&
                           occupationSearchQuery.data?.ok && (
                             <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                              No similar occupation found for “{debouncedOccupationSearch}”.
+                              পেশা পাওয়া যায়নি: “{debouncedOccupationSearch}”.
                             </p>
                           )}
                         {suggestions.length > 0 && (
                           <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                            {suggestions.length} similar occupation
-                            {suggestions.length === 1 ? "" : "s"}
+                            {suggestions.length} পেশা
                           </p>
                         )}
                         {suggestions.map((entry) => (
@@ -2081,7 +2079,7 @@ export function SvpBookingWizard() {
                 {occupation && (
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">Selected: {occupation.name}</p>
+                      <p className="truncate text-sm font-semibold">বাছাই: {occupation.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {occupation.occupationKey ?? `Occupation ${occupation.id}`}
                       </p>
@@ -2097,7 +2095,7 @@ export function SvpBookingWizard() {
                         setOccupationOpen(true);
                       }}
                     >
-                      Change
+                      বদলান
                     </Button>
                   </div>
                 )}
@@ -2105,7 +2103,7 @@ export function SvpBookingWizard() {
             </div>
 
             <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
-              <Field label={isTargeted ? "Test center city" : "Test center city *"}>
+              <Field label={isTargeted ? "শহর" : "শহর *"}>
                 <NativeSelect
                   value={cityOptions.some((entry) => entry.city === city) ? city : ""}
                   onChange={(event) => chooseCity(event.target.value)}
@@ -2115,10 +2113,10 @@ export function SvpBookingWizard() {
                 >
                   <option value="">
                     {citiesLoading && cityOptions.length === 0
-                      ? "Loading available cities…"
+                      ? "শহর আসছে…"
                       : cityOptions.length === 0
-                        ? "No cities returned by SVP"
-                        : "Select an available city"}
+                        ? "এখন কোনো শহর নেই"
+                        : "শহর বাছুন"}
                   </option>
                   {cityOptions.map((entry) => (
                     <option key={entry.city} value={entry.city}>
@@ -2129,7 +2127,7 @@ export function SvpBookingWizard() {
               </Field>
               {citiesLoading && (
                 <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Loading available cities…
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> শহর আসছে…
                 </p>
               )}
               {manualCityFallback && (
@@ -2142,8 +2140,7 @@ export function SvpBookingWizard() {
                     required
                   />
                   <span className="block text-xs text-muted-foreground">
-                    The API has no city list. Enter a city only if you know the SVP test center;
-                    availability must still be confirmed by SVP.
+                    পরীক্ষাকেন্দ্রের শহর লিখে খুঁজুন।
                   </span>
                 </Field>
               )}
@@ -2151,7 +2148,7 @@ export function SvpBookingWizard() {
 
             {occupationsQuery.isPending && (
               <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Loading occupations from SVP…
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> পেশা আসছে…
               </p>
             )}
             {occupationsQuery.isError && (
@@ -2160,13 +2157,13 @@ export function SvpBookingWizard() {
                 role="alert"
               >
                 <span>
-                  Occupations could not be loaded:{" "}
+                  পেশা আসেনি। আবার চেষ্টা করুন।{" "}
                   {occupationsQuery.error instanceof Error
                     ? occupationsQuery.error.message
                     : "unknown error"}
                 </span>
                 <Button type="button" size="sm" variant="outline" onClick={retryOccupations}>
-                  Retry
+                  আবার চেষ্টা
                 </Button>
               </div>
             )}
@@ -2177,38 +2174,26 @@ export function SvpBookingWizard() {
               >
                 <span>{occupationsQuery.data.message}</span>
                 <Button type="button" size="sm" variant="outline" onClick={retryOccupations}>
-                  Retry
+                  আবার চেষ্টা
                 </Button>
               </div>
             )}
             {occupationsQuery.data?.ok && occupations.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {occupations.length} occupations loaded from SVP.
-              </p>
+              <p className="text-xs text-muted-foreground">{occupations.length}টি পেশা</p>
             )}
             {occupationsQuery.data?.ok &&
               occupations.length === 0 &&
               !occupation &&
               !occupationSearch.trim() && (
                 <div className="space-y-2 rounded-lg border bg-muted/20 p-3 text-sm" role="status">
-                  <p className="font-medium">SVP returned no occupations for this account.</p>
-                  <p className="text-xs text-muted-foreground">Build v28</p>
+                  <p className="font-medium">পেশার নাম লিখে খুঁজুন।</p>
+
                   <p className="text-xs text-muted-foreground">
-                    Type a word such as <strong>welder</strong> or <strong>loading</strong> in the
-                    Occupation field to search SVP directly.
+                    যেমন <strong>Welder</strong> লিখে খুঁজুন।
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" size="sm" variant="outline" onClick={retryOccupations}>
-                      Reload occupations
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => diagnosticsMutation.mutate()}
-                      disabled={diagnosticsMutation.isPending}
-                    >
-                      {diagnosticsMutation.isPending ? "Checking…" : "Run diagnostics"}
+                      পেশা আবার দেখুন
                     </Button>
                     <Button
                       type="button"
@@ -2217,40 +2202,19 @@ export function SvpBookingWizard() {
                       onClick={() => signOutMutation.mutate(false)}
                       disabled={signOutMutation.isPending}
                     >
-                      Sign out SVP & retry
+                      লগআউট করে দেখুন
                     </Button>
                   </div>
-                  {diagnostics && (
-                    <div className="grid gap-1 rounded-lg border bg-background/60 p-2 font-mono text-[11px] text-muted-foreground">
-                      <p>
-                        session: {diagnostics.login ?? "—"} · svp id: {diagnostics.svpUserId ?? "—"}{" "}
-                        · stored targeted: {String(diagnostics.countryTargeted)}
-                      </p>
-                      <p>
-                        permissions: HTTP {diagnostics.permissions.status} · targeted:{" "}
-                        {String(diagnostics.permissions.targeted)} · country:{" "}
-                        {diagnostics.permissions.country ?? "—"}
-                      </p>
-                      <p>
-                        labor occupations: HTTP {diagnostics.labor.status} ·{" "}
-                        {diagnostics.labor.count} items · {diagnostics.labor.message ?? "ok"}
-                      </p>
-                      <p>
-                        visitor occupations: HTTP {diagnostics.visitor.status} ·{" "}
-                        {diagnostics.visitor.count} items · {diagnostics.visitor.message ?? "ok"}
-                      </p>
-                    </div>
-                  )}
                 </div>
               )}
             {occupationLookup && (
               <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Loading the full occupation…
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> পেশার তথ্য আসছে…
               </p>
             )}
             {occupation && !effectiveCategoryId && !occupationLookup && (
               <p role="alert" className="text-sm text-destructive">
-                This occupation is not linked to a bookable SVP category.
+                এই পেশায় এখন বুকিং করা যাচ্ছে না।
               </p>
             )}
             {setupQuery.data && !setupQuery.data.ok && (
@@ -2301,7 +2265,7 @@ export function SvpBookingWizard() {
                 ) : (
                   <CalendarDays className="mr-2 h-4 w-4" />
                 )}
-                Continue
+                পরের ধাপ
               </Button>
             </div>
           </section>
@@ -2314,14 +2278,14 @@ export function SvpBookingWizard() {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
                   <CalendarDays className="h-5 w-5" />
                 </span>
-                <h2 className="text-xl font-bold">Step 2 · Choose the exam session</h2>
+                <h2 className="text-xl font-bold">ধাপ ২ · তারিখ ও সময়</h2>
                 <Button
                   type="button"
                   size="icon"
                   variant="ghost"
                   className="ml-auto shrink-0"
-                  aria-label="Refresh sessions"
-                  title="Refresh"
+                  aria-label="আবার দেখুন"
+                  title="আবার দেখুন"
                   disabled={datesLoading || sessionsLoading}
                   onClick={refreshAvailability}
                 >
@@ -2336,7 +2300,7 @@ export function SvpBookingWizard() {
 
             {datesLoading && (
               <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-                <LoaderCircle className="h-4 w-4 animate-spin" /> Loading available dates…
+                <LoaderCircle className="h-4 w-4 animate-spin" /> তারিখ আসছে…
               </p>
             )}
             {datesError && (
@@ -2350,8 +2314,8 @@ export function SvpBookingWizard() {
               shownDateOptions.length === 0 && (
                 <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
                   {isTargeted
-                    ? "No dates with free seats are available for this occupation right now."
-                    : "No test center sites have free dates this month for this city. Try another city."}
+                    ? "এখন কোনো খালি তারিখ নেই।"
+                    : "এই মাসে আসন নেই। অন্য মাস বা শহর দেখুন।"}
                 </p>
               )}
 
@@ -2378,7 +2342,7 @@ export function SvpBookingWizard() {
                     className="flex items-center gap-2 text-sm text-muted-foreground"
                     role="status"
                   >
-                    <LoaderCircle className="h-4 w-4 animate-spin" /> Loading the test center…
+                    <LoaderCircle className="h-4 w-4 animate-spin" /> কেন্দ্র আসছে…
                   </p>
                 )}
                 {sessionsError && (
@@ -2388,12 +2352,12 @@ export function SvpBookingWizard() {
                 )}
                 {sessionsLoaded && !sessionsLoading && sessionViews.length === 0 && (
                   <p className="text-sm text-muted-foreground" role="status">
-                    No sessions available. Choose another date.
+                    আসন নেই। অন্য তারিখ বাছুন।
                   </p>
                 )}
                 {sessionViews.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium">Test center</p>
+                    <p className="text-sm font-medium">পরীক্ষাকেন্দ্র</p>
                     <SvpSessionOptions
                       views={sessionViews}
                       disabled={sessionsLoading || Boolean(sessionsError)}
@@ -2403,7 +2367,7 @@ export function SvpBookingWizard() {
 
                 {!isTargeted && holdId && (
                   <p className="text-xs text-muted-foreground">
-                    SVP has held this slot for you. Continue to confirm the booking.
+                    আসন সাময়িক রাখা হয়েছে। পরের ধাপে নিশ্চিত করুন।
                   </p>
                 )}
               </div>
@@ -2411,7 +2375,7 @@ export function SvpBookingWizard() {
 
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setStage("select")}>
-                <RotateCcw className="mr-2 h-4 w-4" /> Back
+                <RotateCcw className="mr-2 h-4 w-4" /> আগের ধাপ
               </Button>
               <Button
                 type="button"
@@ -2429,7 +2393,7 @@ export function SvpBookingWizard() {
                 {(holdMutation.isPending || targetedHoldMutation.isPending) && (
                   <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Continue
+                পরের ধাপ
               </Button>
             </div>
           </section>
@@ -2446,40 +2410,40 @@ export function SvpBookingWizard() {
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
                     <ShieldCheck className="h-5 w-5" />
                   </span>
-                  <h2 className="text-xl font-bold">Step 3 · Confirm the booking</h2>
+                  <h2 className="text-xl font-bold">ধাপ ৩ · বুকিং নিশ্চিত করুন</h2>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  The reservation is created with the real SVP API for this signed-in account.
+                  তথ্য মিলিয়ে বুকিং নিশ্চিত করুন।
                 </p>
               </div>
 
               <dl className="grid gap-2 rounded-xl border bg-muted/20 p-3 text-sm sm:grid-cols-2">
                 <div>
-                  <dt className="text-xs text-muted-foreground">Occupation</dt>
+                  <dt className="text-xs text-muted-foreground">পেশা</dt>
                   <dd className="font-medium">{occupation.name}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">Date and time</dt>
+                  <dt className="text-xs text-muted-foreground">তারিখ ও সময়</dt>
                   <dd className="font-medium">{formatSvpDateTime(selectedSession.startAt)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">Test center</dt>
+                  <dt className="text-xs text-muted-foreground">পরীক্ষাকেন্দ্র</dt>
                   <dd className="font-medium">
                     {selectedSession.centerName ?? selectedSession.city ?? city}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">Language</dt>
+                  <dt className="text-xs text-muted-foreground">ভাষা</dt>
                   <dd className="font-medium" title={activeLanguageCode}>
-                    {activeLanguageLabel}
+                    {svpLanguageLabel(activeLanguageLabel)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">Booking cost</dt>
+                  <dt className="text-xs text-muted-foreground">বুকিং ফি</dt>
                   <dd className="font-medium">৳{SVP_BOOKING_COST_BDT}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">Wallet balance</dt>
+                  <dt className="text-xs text-muted-foreground">ব্যালেন্স</dt>
                   <dd className={`font-medium ${canAffordBooking ? "" : "text-destructive"}`}>
                     ৳{walletBalance.toLocaleString("en-BD")}
                   </dd>
@@ -2503,22 +2467,22 @@ export function SvpBookingWizard() {
 
               {isTargeted && targetedHoldExpiresAt && (
                 <p className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
-                  <Clock3 className="h-3.5 w-3.5" /> Seat held by SVP until{" "}
-                  {formatHoldExpiry(targetedHoldExpiresAt)}. Complete the booking to confirm it.
+                  <Clock3 className="h-3.5 w-3.5" /> আসন রাখা আছে:{" "}
+                  {formatHoldExpiry(targetedHoldExpiresAt)}। বুকিং নিশ্চিত করুন।
                 </p>
               )}
               {!isTargeted && holdId && (
                 <p className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
-                  <Clock3 className="h-3.5 w-3.5" /> Slot held by SVP
+                  <Clock3 className="h-3.5 w-3.5" /> আসন রাখা আছে
                   {prometricHoldExpiresAt
-                    ? ` until ${formatHoldExpiry(prometricHoldExpiresAt)}`
+                    ? ` ${formatHoldExpiry(prometricHoldExpiresAt)} পর্যন্ত`
                     : ""}
-                  . Complete the booking to confirm it.
+                  । বুকিং নিশ্চিত করুন।
                 </p>
               )}
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Candidate name *">
+                <Field label="পরীক্ষার্থীর নাম *">
                   <Input
                     value={candidateName}
                     maxLength={120}
@@ -2526,10 +2490,10 @@ export function SvpBookingWizard() {
                     required
                     disabled={bookingMutation.isPending}
                     onChange={(event) => setCandidateName(event.target.value)}
-                    placeholder="Full name"
+                    placeholder="পুরো নাম"
                   />
                 </Field>
-                <Field label="Passport *">
+                <Field label="পাসপোর্ট *">
                   <Input
                     value={passport}
                     maxLength={20}
@@ -2546,27 +2510,25 @@ export function SvpBookingWizard() {
                           .toUpperCase(),
                       )
                     }
-                    placeholder="Passport number"
+                    placeholder="পাসপোর্ট নম্বর"
                   />
                 </Field>
-                <Field label="Agency">
+                <Field label="এজেন্সি">
                   <Input
                     value={agency}
                     maxLength={120}
                     disabled={bookingMutation.isPending}
                     onChange={(event) => setAgency(event.target.value)}
-                    placeholder="Optional"
+                    placeholder="ঐচ্ছিক"
                   />
                 </Field>
               </div>
               <p className="text-xs text-muted-foreground">
-                Name and passport are filled automatically when supplied by this SVP account. Review
-                them or complete any missing details. Agency is optional. The local record is saved
-                automatically only after SVP creates the reservation.
+                নাম ও পাসপোর্ট মিলিয়ে নিন। এজেন্সি ঐচ্ছিক।
               </p>
               {passport.trim() && !/^[A-Za-z0-9]{5,20}$/.test(passport.trim()) && (
                 <p role="alert" className="text-xs text-destructive">
-                  Use 5–20 letters and numbers for the passport.
+                  পাসপোর্টে ৫–২০টি ইংরেজি অক্ষর ও সংখ্যা দিন।
                 </p>
               )}
 
@@ -2576,8 +2538,7 @@ export function SvpBookingWizard() {
                   className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950"
                 >
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  This occupation requires a driver license upload. Complete this booking in the
-                  official SVP portal instead.
+                  ড্রাইভিং লাইসেন্স লাগবে। SVP সাইট থেকে বুকিং করুন।
                 </p>
               )}
 
@@ -2589,10 +2550,7 @@ export function SvpBookingWizard() {
                   disabled={bookingMutation.isPending}
                   onChange={(event) => setAccepted(event.target.checked)}
                 />
-                <span>
-                  I confirm the candidate details are correct and accept the SVP booking and refund
-                  rules.
-                </span>
+                <span>তথ্য সঠিক। SVP বুকিং ও ফেরতের শর্তে সম্মত আছি।</span>
               </label>
 
               <div className="flex flex-wrap gap-2">
@@ -2602,7 +2560,7 @@ export function SvpBookingWizard() {
                   onClick={() => setStage("dates")}
                   disabled={bookingMutation.isPending}
                 >
-                  <RotateCcw className="mr-2 h-4 w-4" /> Back
+                  <RotateCcw className="mr-2 h-4 w-4" /> আগের ধাপ
                 </Button>
                 <Button
                   type="button"
@@ -2622,7 +2580,7 @@ export function SvpBookingWizard() {
                   {bookingMutation.isPending && (
                     <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                   )}
-                  Create SVP booking
+                  বুকিং করুন
                 </Button>
               </div>
             </section>
@@ -2635,17 +2593,14 @@ export function SvpBookingWizard() {
                 <CheckCircle2 className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-xl font-bold">Reservation created</h2>
-                <p className="text-sm text-muted-foreground">
-                  SVP reservation number: {result.reservationId}
-                </p>
+                <h2 className="text-xl font-bold">বুকিং হয়েছে</h2>
+                <p className="text-sm text-muted-foreground">বুকিং নম্বর: {result.reservationId}</p>
               </div>
             </div>
             <p className="rounded-lg border bg-muted/30 p-3 text-sm">{result.message}</p>
             {localSaveStatus === "saving" && (
               <p role="status" className="flex items-center gap-2 rounded-lg border p-3 text-sm">
-                <LoaderCircle className="h-4 w-4 animate-spin" /> Saving the local reservation
-                record automatically…
+                <LoaderCircle className="h-4 w-4 animate-spin" /> বুকিং সংরক্ষণ হচ্ছে…
               </p>
             )}
             {localSaveStatus === "saved" && (
@@ -2653,7 +2608,7 @@ export function SvpBookingWizard() {
                 role="status"
                 className="rounded-lg border bg-success-soft p-3 text-sm text-success"
               >
-                Local reservation record saved automatically.
+                বুকিং সংরক্ষিত হয়েছে।
               </p>
             )}
             {localSaveStatus === "failed" && (
@@ -2661,10 +2616,7 @@ export function SvpBookingWizard() {
                 role="alert"
                 className="space-y-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950"
               >
-                <p>
-                  SVP created the reservation, but the local record was not saved. Do not book
-                  again.
-                </p>
+                <p>SVP বুকিং হয়েছে। তথ্য সংরক্ষণ হয়নি। আবার বুকিং করবেন না।</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -2672,19 +2624,16 @@ export function SvpBookingWizard() {
                     if (localRecordRef.current) void saveLocalRecord(localRecordRef.current);
                   }}
                 >
-                  Retry local save
+                  আবার সংরক্ষণ
                 </Button>
-                <p className="text-xs">
-                  This retries the local record only; it does not create another SVP reservation.
-                </p>
+                <p className="text-xs">শুধু তথ্য সংরক্ষণ হবে। নতুন বুকিং হবে না।</p>
               </div>
             )}
             {result.paymentRequired && (
               <div className="space-y-2">
                 <p className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  The reservation is not confirmed until payment is completed. Use the SVP card
-                  payment below.
+                  পেমেন্টের পর বুকিং নিশ্চিত হবে। নিচে পেমেন্ট করুন।
                 </p>
                 <SvpCardPayment
                   reservationId={result.reservationId}
@@ -2702,7 +2651,7 @@ export function SvpBookingWizard() {
             )}
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={resetFlow} disabled={localSaveStatus !== "saved"}>
-                Book another
+                নতুন বুকিং
               </Button>
               {!result.paymentRequired && (
                 <Button
@@ -2722,12 +2671,12 @@ export function SvpBookingWizard() {
                   ) : (
                     <Download className="mr-2 h-4 w-4" />
                   )}
-                  Download ticket PDF
+                  টিকিট নামান
                 </Button>
               )}
               <a href={SVP_PORTAL_BOOKING_URL} target="_blank" rel="noreferrer">
                 <Button type="button" variant="outline">
-                  <ExternalLink className="mr-2 h-4 w-4" /> Open SVP portal
+                  <ExternalLink className="mr-2 h-4 w-4" /> SVP সাইট খুলুন
                 </Button>
               </a>
             </div>
@@ -2741,10 +2690,10 @@ export function SvpBookingWizard() {
           <div className="flex items-center justify-between gap-2">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Official reservations
+                আমার বুকিং
               </p>
               <h2 id="svp-account-bookings" className="text-lg font-bold">
-                SVP bookings on this account
+                SVP বুকিং তালিকা
               </h2>
               <p className="text-xs text-muted-foreground">
                 {reservations.length} total
@@ -2762,7 +2711,7 @@ export function SvpBookingWizard() {
           )}
           {reservations.length === 0 ? (
             <p className="rounded-xl border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-              No SVP bookings found for this account.
+              এখনো কোনো বুকিং নেই।
             </p>
           ) : (
             <div className="divide-y overflow-hidden rounded-xl border bg-background/40">
@@ -2782,7 +2731,7 @@ export function SvpBookingWizard() {
                     <div className="min-w-0">
                       <p className="font-semibold">
                         <UserRound className="mr-1 inline h-4 w-4" />{" "}
-                        {entry.occupationName ?? "Occupation"} · #{entry.id}
+                        {entry.occupationName ?? "পেশা"} · #{entry.id}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {entry.startAt ? formatSvpDateTime(entry.startAt) : "Date not set"}
@@ -2804,14 +2753,14 @@ export function SvpBookingWizard() {
                           variant="outline"
                           onClick={() => openReschedule(entry.id)}
                         >
-                          <RotateCcw className="mr-1 h-3.5 w-3.5" /> Reschedule
+                          <RotateCcw className="mr-1 h-3.5 w-3.5" /> তারিখ বদল
                         </Button>
                       ) : (
                         <span
                           className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
                           title="SVP marks this booking as not reschedulable"
                         >
-                          Not reschedulable
+                          তারিখ বদল বন্ধ
                         </span>
                       )}
                       {entry.status && !/cancel/i.test(entry.status) && (
@@ -2831,7 +2780,7 @@ export function SvpBookingWizard() {
                           ) : (
                             <XCircle className="mr-1 h-3.5 w-3.5" />
                           )}
-                          Cancel
+                          বাতিল
                         </Button>
                       )}
                       {ticketReady && (
@@ -2853,7 +2802,7 @@ export function SvpBookingWizard() {
                           ) : (
                             <Download className="mr-1 h-3.5 w-3.5" />
                           )}
-                          Ticket PDF
+                          টিকিট
                         </Button>
                       )}
                       {(entry.examResult || entry.finalResult) && (
@@ -2872,7 +2821,7 @@ export function SvpBookingWizard() {
                             )
                           }
                         >
-                          <FileText className="mr-1 h-3.5 w-3.5" /> CBT result PDF
+                          <FileText className="mr-1 h-3.5 w-3.5" /> CBT রেজাল্ট
                           {cbtResultFee > 0 ? ` · ৳${cbtResultFee}` : ""}
                         </Button>
                       )}
@@ -2896,7 +2845,7 @@ export function SvpBookingWizard() {
                             ) : (
                               <Award className="mr-1 h-3.5 w-3.5" />
                             )}
-                            Certificate PDF
+                            সার্টিফিকেট
                           </Button>
                         )}
                     </div>
@@ -2931,15 +2880,15 @@ export function SvpBookingWizard() {
           <section className="card-surface space-y-3 p-4 sm:p-5">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                SVP account activity
+                অ্যাকাউন্ট তথ্য
               </p>
-              <h2 className="text-lg font-bold">Payments & notifications</h2>
+              <h2 className="text-lg font-bold">পেমেন্ট ও নোটিশ</h2>
             </div>
 
             {payments.length > 0 && (
               <div className="space-y-2">
                 <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <CreditCard className="h-3.5 w-3.5" /> Card payments
+                  <CreditCard className="h-3.5 w-3.5" /> কার্ড পেমেন্ট
                 </p>
                 <div className="divide-y overflow-hidden rounded-xl border bg-background/40">
                   {payments.slice(0, 8).map((payment) => (
@@ -2973,7 +2922,7 @@ export function SvpBookingWizard() {
             {notifications.length > 0 && (
               <div className="space-y-2">
                 <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <Bell className="h-3.5 w-3.5" /> SVP notifications
+                  <Bell className="h-3.5 w-3.5" /> SVP নোটিশ
                 </p>
                 <div className="space-y-2">
                   {notifications.slice(0, 5).map((notification) => (

@@ -77,13 +77,11 @@ const MAP: Record<string, "PASS" | "FAIL" | "PENDING"> = {
   pending: "PENDING",
 };
 
-async function fetchRetry(url: string, tries = 3): Promise<Response> {
+async function fetchRetry(url: string, tries = 3, timeoutMs = 15000): Promise<Response> {
   let last: unknown;
   for (let i = 0; i < tries; i++) {
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), 15000);
     try {
-      const r = await fetch(url, { headers: HEADERS, signal: ac.signal });
+      const r = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(timeoutMs) });
       if (r.status >= 500 && i < tries - 1) {
         last = new Error(`status ${r.status}`);
         // An unconsumed body pins a pooled connection while we back off.
@@ -93,15 +91,17 @@ async function fetchRetry(url: string, tries = 3): Promise<Response> {
       return r;
     } catch (e) {
       last = e;
-      await new Promise((s) => setTimeout(s, 700 * (i + 1)));
-    } finally {
-      clearTimeout(t);
+      if (i < tries - 1) await new Promise((s) => setTimeout(s, 700 * (i + 1)));
     }
   }
   throw last;
 }
 
-export async function querySvp(passport: string, occupationKey: string): Promise<SvpCheck> {
+export async function querySvp(
+  passport: string,
+  occupationKey: string,
+  options: { tries?: number; timeoutMs?: number } = {},
+): Promise<SvpCheck> {
   const pp = passport.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   const qs = new URLSearchParams({
     passport_number: pp,
@@ -110,7 +110,11 @@ export async function querySvp(passport: string, occupationKey: string): Promise
     locale: "en",
   });
   try {
-    const r = await fetchRetry(`${API}/labors?${qs}`);
+    const r = await fetchRetry(
+      `${API}/labors?${qs}`,
+      Math.max(1, Math.min(options.tries ?? 3, 3)),
+      Math.max(1000, Math.min(options.timeoutMs ?? 15000, 15000)),
+    );
     // Bounded read: a huge or malformed gateway body becomes an empty result, not memory pressure.
     const body = await readBoundedJson(r);
     if (r.status === 404)
@@ -145,7 +149,6 @@ export async function querySvp(passport: string, occupationKey: string): Promise
       occupation: nameOf(rec.occupation),
     };
   } catch (e) {
-    console.error("SVP check failed", e);
     return {
       status: "error",
       message: "SVP সার্ভার এই মুহূর্তে সাড়া দিচ্ছে না — কিছুক্ষণ পর আবার চেষ্টা করুন",
@@ -359,4 +362,29 @@ export const publicSvpLookup = createServerFn({ method: "POST" })
     const key = (o as { svp_key?: string | null } | null)?.svp_key;
     if (!key) return { status: "error", message: "এই পেশার SVP কোড সেট করা নেই" } as SvpCheck;
     return querySvp(data.passport, key);
+  });
+
+/** Aggregate operational status is staff-only; no applicant identifiers are returned. */
+export const getSvpResultAutomationStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const role = await context.supabase.rpc("is_staff", { _user_id: context.userId });
+    if (role.error || role.data !== true) throw new Error("অনুমতি নেই");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const result = await supabaseAdmin.rpc("svp_result_automation_status");
+    if (result.error) throw new Error("অটো চেকের তথ্য আসেনি");
+    return z
+      .object({
+        enabled: z.boolean(),
+        lastRunAt: z.string().nullable(),
+        lastChecked: z.number(),
+        lastSaved: z.number(),
+        lastErrors: z.number(),
+        delayMinutes: z.literal(120),
+        intervalMinutes: z.literal(5),
+        pending: z.number(),
+        missingInfo: z.number(),
+        nextCheckAt: z.string().nullable(),
+      })
+      .parse(result.data);
   });

@@ -280,7 +280,7 @@ async function refreshStoredSession(
   session: SvpStoredSession,
 ): Promise<SvpStoredSession> {
   if (!session.refreshCookies) {
-    clearStoredSvpSession(appUserId);
+    removeStoredSvpAccount(appUserId, session.login);
     throw new SvpSessionMissingError();
   }
   let response: Response;
@@ -296,16 +296,18 @@ async function refreshStoredSession(
       headers,
     });
   } catch {
-    throw new SvpSessionMissingError();
+    throw new Error("SVP সংযোগ যাচাই হয়নি। আবার চেষ্টা করুন।");
   }
   if (!response.ok) {
-    clearStoredSvpSession(appUserId);
+    if (response.status !== 401 && response.status !== 403)
+      throw new Error("SVP সংযোগ যাচাই হয়নি। আবার চেষ্টা করুন।");
+    removeStoredSvpAccount(appUserId, session.login);
     throw new SvpSessionMissingError();
   }
   const payload = await readBoundedBody(response);
   const auth = extractSvpAuthPayload(payload);
   if (!auth) {
-    clearStoredSvpSession(appUserId);
+    removeStoredSvpAccount(appUserId, session.login);
     throw new SvpSessionMissingError();
   }
   const next: SvpStoredSession = {
@@ -418,7 +420,7 @@ async function performAuthedResponse(
 
   // A rejected token means the stored SVP session is dead; force a fresh login.
   if (response.status === 401) {
-    clearStoredSvpSession(appUserId);
+    removeStoredSvpAccount(appUserId, session.login);
     throw new SvpSessionMissingError();
   }
 

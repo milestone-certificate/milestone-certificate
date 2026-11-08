@@ -219,6 +219,10 @@ export type Database = {
       };
       exams: {
         Row: {
+          svp_auto_checked_at: string | null;
+          svp_auto_lease_token: string | null;
+          svp_auto_lease_until: string | null;
+          svp_auto_outcome: string | null;
           candidate_id: string;
           created_at: string;
           exam_date: string;
@@ -235,6 +239,10 @@ export type Database = {
           ttc_id: string | null;
         };
         Insert: {
+          svp_auto_checked_at?: string | null;
+          svp_auto_lease_token?: string | null;
+          svp_auto_lease_until?: string | null;
+          svp_auto_outcome?: string | null;
           candidate_id: string;
           created_at?: string;
           exam_date: string;
@@ -251,6 +259,10 @@ export type Database = {
           ttc_id?: string | null;
         };
         Update: {
+          svp_auto_checked_at?: string | null;
+          svp_auto_lease_token?: string | null;
+          svp_auto_lease_until?: string | null;
+          svp_auto_outcome?: string | null;
           candidate_id?: string;
           created_at?: string;
           exam_date?: string;
@@ -1237,6 +1249,17 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      claim_svp_auto_result_checks: { Args: { _limit?: number }; Returns: Json };
+      finish_svp_auto_result_check: {
+        Args: { _exam_id: string; _lease_token: string; _outcome: string };
+        Returns: boolean;
+      };
+      record_svp_auto_result_run: {
+        Args: { _checked: number; _saved: number; _errors: number };
+        Returns: undefined;
+      };
+      svp_result_automation_status: { Args: Record<PropertyKey, never>; Returns: Json };
+
       apply_verified_svp_exam_result: {
         Args: { _exam_id: string; _snapshot: Json; _result: string; _result_date: string };
         Returns: Json;
