@@ -17,19 +17,3 @@ export function reserveSvpMail(login: string) {
     },
   };
 }
-
-export function svpLanguageLabel(label: string): string {
-  return (
-    (
-      {
-        english: "ইংরেজি",
-        bengali: "বাংলা",
-        bangla: "বাংলা",
-        arabic: "আরবি",
-        hindi: "হিন্দি",
-        urdu: "উর্দু",
-        nepali: "নেপালি",
-      } as Record<string, string>
-    )[label.trim().toLowerCase()] ?? label
-  );
-}

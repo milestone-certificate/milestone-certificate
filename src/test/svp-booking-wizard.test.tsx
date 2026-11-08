@@ -1957,3 +1957,28 @@ it("keeps an active connection in the booking flow without showing OTP", async (
   expect(screen.queryByText("SVPLOGINPANEL")).not.toBeInTheDocument();
   expect(screen.getByText(/ধাপ ১/)).toBeInTheDocument();
 });
+
+it("displays the full SVP language label for Takamol's automatic code regardless of its country flag", async () => {
+  const full = {
+    ...occupation,
+    languages: [
+      { code: "LOAEE", label: "English", questionCount: 15, nonTargeted: false },
+      { code: "LOABB", label: "Bengali", questionCount: 0, nonTargeted: true },
+    ],
+  };
+  mocks.occupations.mockResolvedValue({ ok: true, data: [full] });
+  mocks.occupationById.mockResolvedValue({ ok: true, data: full });
+  mocks.takamol.mockResolvedValue({
+    success: true,
+    data: { occupations: [{ occupation_id: 11, language_code: "LOABB" }] },
+  });
+  renderWizard();
+  await screen.findByText(/সংযোগ আছে · Noor Rahman/);
+  fireEvent.focus(await screen.findByLabelText("পেশা *"));
+  fireEvent.click(await screen.findByRole("button", { name: /Welder/ }));
+  const language = screen.getByLabelText("পরীক্ষার ভাষা *");
+  await waitFor(() => expect(language).toHaveValue("LOABB"));
+  expect(within(language).getByRole("option", { name: "বাংলা" })).toHaveValue("LOABB");
+  expect(language).toBeDisabled();
+  expect(mocks.create).not.toHaveBeenCalled();
+});

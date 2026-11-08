@@ -1,4 +1,4 @@
-import { svpLanguageLabel } from "@/lib/svp-mail";
+import { svpLanguageLabel, svpLanguageOptions } from "@/lib/svp-language.shared";
 import { reserveSvpMail } from "@/lib/svp-mail";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -506,26 +506,7 @@ export function SvpBookingWizard() {
           entry.id === (occupation?.categoryId ?? manualCategoryId ?? matchedCategory?.id ?? -1),
       ) ?? matchedCategory;
     const categoryLanguages = category?.languages ?? [];
-    const filtered = all.filter((entry) => entry.nonTargeted === !isTargeted);
-    const categoryFiltered = categoryLanguages.filter((entry) => entry.nonTargeted === !isTargeted);
-    const source =
-      filtered.length > 0
-        ? filtered
-        : categoryFiltered.length > 0
-          ? categoryFiltered
-          : all.length > 0
-            ? all
-            : categoryLanguages;
-    const byLabel = new Map<string, (typeof all)[number]>();
-    for (const entry of source) {
-      const key = entry.label.toLowerCase();
-      const existing = byLabel.get(key);
-      if (!existing || (entry.questionCount ?? 0) > (existing.questionCount ?? 0)) {
-        byLabel.set(key, entry);
-      }
-    }
-    const options = [...byLabel.values()];
-    return options;
+    return svpLanguageOptions(all, categoryLanguages, isTargeted);
   }, [categoryOptions, isTargeted, manualCategoryId, matchedCategory, occupation]);
   // Takamol returns one language code per occupation: only that language is shown and applied.
   const takamolLanguageCode = occupationId
@@ -540,13 +521,17 @@ export function SvpBookingWizard() {
         ? [
             {
               code: takamolLanguageCode,
-              label: takamolLanguageCode,
+              label:
+                occupation?.languages.find((entry) => entry.code === takamolLanguageCode)?.label ??
+                matchedCategory?.languages.find((entry) => entry.code === takamolLanguageCode)
+                  ?.label ??
+                takamolLanguageCode,
               questionCount: null,
               nonTargeted: false,
             },
           ]
         : languageOptions,
-    [languageOptions, takamolLanguageCode],
+    [languageOptions, takamolLanguageCode, occupation?.languages, matchedCategory?.languages],
   );
   useEffect(() => {
     if (takamolLanguageCode) {

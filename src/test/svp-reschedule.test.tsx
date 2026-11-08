@@ -5,6 +5,7 @@ import { SvpReschedulePanel } from "@/components/app/SvpReschedulePanel";
 
 const mocks = vi.hoisted(() => ({
   detail: vi.fn(),
+  occupation: vi.fn(),
   dates: vi.fn(),
   sessions: vi.fn(),
   reschedule: vi.fn(),
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/svp-booking.functions", () => ({
   getSvpReservationDetail: mocks.detail,
-  getSvpOccupationById: vi.fn().mockResolvedValue({ ok: true, data: { categoryId: 159 } }),
+  getSvpOccupationById: mocks.occupation,
   listSvpRescheduleDates: mocks.dates,
   listSvpExamSessions: mocks.sessions,
   rescheduleSvpBooking: mocks.reschedule,
@@ -91,6 +92,10 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.detail.mockResolvedValue({ ok: true, data: detail });
+  mocks.occupation.mockResolvedValue({
+    ok: true,
+    data: { id: 11, categoryId: 159, occupationKey: "933301", languages: [] },
+  });
   mocks.dates.mockResolvedValue({
     ok: true,
     data: [{ startAt: "2026-12-01 11:00:00", city: "Dhaka", centerName: "Dhaka Center" }],
@@ -227,7 +232,7 @@ describe("SVP reschedule panel", () => {
     expect(await screen.findByText(/বর্তমান সময়:/)).toBeInTheDocument();
     expect(await screen.findByText(/1 বার বাকি/)).toBeInTheDocument();
 
-    fireEvent.change(await screen.findByLabelText("শহর *"), {
+    fireEvent.change(await screen.findByLabelText("শহর"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
@@ -276,7 +281,7 @@ describe("SVP reschedule panel", () => {
     });
     renderPanel({ loadBalancer: true });
 
-    fireEvent.change(await screen.findByLabelText("শহর *"), {
+    fireEvent.change(await screen.findByLabelText("শহর"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
@@ -316,7 +321,7 @@ describe("SVP reschedule panel", () => {
     const onDone = vi.fn();
     renderPanel({ onDone });
 
-    fireEvent.change(await screen.findByLabelText("শহর *"), {
+    fireEvent.change(await screen.findByLabelText("শহর"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
@@ -340,7 +345,7 @@ describe("SVP reschedule panel", () => {
     expect(
       screen.queryByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("শহর *")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("শহর")).not.toBeInTheDocument();
   });
 
   it("does not invent a reschedule count when SVP did not answer the constraints call", async () => {
@@ -362,7 +367,7 @@ describe("SVP reschedule panel", () => {
     const onReconnect = vi.fn();
     renderPanel({ onReconnect });
 
-    fireEvent.change(await screen.findByLabelText("শহর *"), {
+    fireEvent.change(await screen.findByLabelText("শহর"), {
       target: { value: "Dhaka" },
     });
     await pickRescheduleDate();
@@ -398,8 +403,8 @@ describe("SVP site-based reschedule", () => {
     });
     renderPanel({ isTargeted: false });
 
-    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
-    expect(citySelect).toHaveValue("");
+    const citySelect = (await screen.findByLabelText("শহর")) as HTMLSelectElement;
+    expect(citySelect).toHaveValue("Dhaka");
     expect(mocks.takamol).toHaveBeenCalledWith({ data: { endpoint: "cities", categoryId: "159" } });
     fireEvent.change(citySelect, { target: { value: "Dhaka" } });
     await changeMonth("2026-12");
@@ -437,7 +442,7 @@ describe("SVP site-based reschedule", () => {
       screen.queryByText("Takamol city endpoint unavailable", { exact: false }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect((await screen.findByLabelText("শহর *")) as HTMLSelectElement).toHaveValue("");
+    expect((await screen.findByLabelText("শহর")) as HTMLSelectElement).toHaveValue("Dhaka");
     expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
   });
@@ -453,8 +458,8 @@ describe("SVP site-based reschedule", () => {
     );
     renderPanel({ isTargeted: false, onReconnect });
 
-    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
-    await waitFor(() => expect(citySelect).toHaveValue(""));
+    const citySelect = (await screen.findByLabelText("শহর")) as HTMLSelectElement;
+    await waitFor(() => expect(citySelect).toHaveValue("Dhaka"));
     expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
     expect(
       screen.queryByText("Takamol lookup is not authorized", { exact: false }),
@@ -474,45 +479,21 @@ describe("SVP site-based reschedule", () => {
     );
     renderPanel({ isTargeted: false });
 
-    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
-    await waitFor(() => expect(citySelect).toHaveValue(""));
+    const citySelect = (await screen.findByLabelText("শহর")) as HTMLSelectElement;
+    await waitFor(() => expect(citySelect).toHaveValue("Dhaka"));
     expect(screen.queryByText(/Takamol returned no cities/)).not.toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Dhaka" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
   });
 
-  it("checks a manually entered city with Takamol after its city-list endpoint fails", async () => {
-    mocks.takamol.mockImplementation(({ data }: { data: { endpoint: string; city?: string } }) =>
-      Promise.resolve(
-        data.endpoint === "cities"
-          ? { success: false, status: 404, message: "Resource not found (HTTP 404)" }
-          : takamolResponse(data),
-      ),
-    );
+  it("keeps the known reservation city and retry control without offering manual entry", async () => {
+    mocks.takamol.mockResolvedValue({ success: false, status: 404, message: "Resource not found" });
     renderPanel({ isTargeted: false });
-
-    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
     expect(await screen.findByRole("button", { name: "শহর আবার দেখুন" })).toBeInTheDocument();
-    expect(screen.queryByText(/HTTP 404/)).not.toBeInTheDocument();
-    fireEvent.change(citySelect, { target: { value: "__manual_city__" } });
-    fireEvent.change(await screen.findByLabelText("শহরের নাম"), {
-      target: { value: "  Chattogram  " },
-    });
-    fireEvent.click(await screen.findByRole("button", { name: "খুঁজুন" }));
-
-    await waitFor(() => expect(citySelect).toHaveValue("Chattogram"));
-    expect(mocks.takamol).toHaveBeenCalledWith({
-      data: { endpoint: "centers", city: "Chattogram" },
-    });
-    await waitFor(() =>
-      expect(mocks.sites).toHaveBeenLastCalledWith({
-        data: expect.objectContaining({
-          prometricCode: "en",
-          city: "Chattogram",
-          countryId: 4,
-        }),
-      }),
-    );
+    expect(screen.queryByRole("option", { name: /অন্য শহর|manually/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("শহরের নাম")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("শহর")).toHaveValue("Dhaka");
+    expect(mocks.siteReschedule).not.toHaveBeenCalled();
   });
 
   it("shows every center/session card directly after choosing a date, like booking", async () => {
@@ -525,7 +506,7 @@ describe("SVP site-based reschedule", () => {
     });
     renderPanel({ isTargeted: false });
 
-    const citySelect = (await screen.findByLabelText("শহর *")) as HTMLSelectElement;
+    const citySelect = (await screen.findByLabelText("শহর")) as HTMLSelectElement;
     fireEvent.change(citySelect, { target: { value: "Dhaka" } });
     await changeMonth("2026-12");
     await pickRescheduleDate();
@@ -547,7 +528,7 @@ describe("SVP site-based reschedule", () => {
 
     expect(await screen.findByRole("heading", { name: "তারিখ বদল" })).toBeInTheDocument();
     expect(screen.queryByText(/site-based flow/)).not.toBeInTheDocument();
-    const citySelect = await screen.findByLabelText("শহর *");
+    const citySelect = await screen.findByLabelText("শহর");
     await waitFor(() => expect((citySelect as HTMLSelectElement).disabled).toBe(false));
     fireEvent.change(citySelect, {
       target: { value: "Dhaka" },
@@ -652,7 +633,7 @@ describe("SVP site-based reschedule", () => {
     });
     renderPanel({ isTargeted: false });
 
-    fireEvent.change(await screen.findByLabelText("শহর *"), {
+    fireEvent.change(await screen.findByLabelText("শহর"), {
       target: { value: "Dhaka" },
     });
     await changeMonth("2026-12");
@@ -684,7 +665,7 @@ describe("reschedule error recovery and language preservation", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "বন্ধ করুন" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "আবার দেখুন" }));
-    expect(await screen.findByLabelText("শহর *")).toBeInTheDocument();
+    expect(await screen.findByLabelText("শহর")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(mocks.detail).toHaveBeenCalledTimes(2);
     expect(mocks.reschedule).not.toHaveBeenCalled();
@@ -700,7 +681,7 @@ describe("reschedule error recovery and language preservation", () => {
       renderPanel();
       expect(await screen.findByLabelText("পরীক্ষার ভাষা")).toHaveValue("LOABB");
       expect(screen.getByRole("option", { name: "LOABB" })).toHaveValue("LOABB");
-      fireEvent.change(screen.getByLabelText("শহর *"), { target: { value: "Dhaka" } });
+      fireEvent.change(screen.getByLabelText("শহর"), { target: { value: "Dhaka" } });
       await pickRescheduleDate();
       fireEvent.click(await screen.findByRole("button", { name: /Dhaka Center/ }));
       fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
@@ -714,7 +695,7 @@ describe("reschedule error recovery and language preservation", () => {
 });
 
 async function selectAvailableReschedule(isTargeted: boolean) {
-  fireEvent.change(await screen.findByLabelText("শহর *"), { target: { value: "Dhaka" } });
+  fireEvent.change(await screen.findByLabelText("শহর"), { target: { value: "Dhaka" } });
   if (!isTargeted) {
     await changeMonth("2026-12");
   }
@@ -988,4 +969,141 @@ describe("reschedule date regressions", () => {
       }),
     );
   });
+});
+
+describe("available city and automatic language selection", () => {
+  it("preserves the displayed reservation city when another city's same date comes first, and still allows a city change", async () => {
+    mocks.detail.mockResolvedValue({ ok: true, data: { ...detail, city: "Rajshahi" } });
+    mocks.dates.mockResolvedValue({
+      ok: true,
+      data: [
+        { startAt: "2026-12-01", city: "Khulna", seats: 8 },
+        { startAt: "2026-12-01", city: "Rajshahi", seats: 5 },
+        { startAt: "2026-12-02", city: "Sylhet", seats: 0 },
+      ],
+    });
+    renderPanel();
+    const city = await screen.findByLabelText("শহর");
+    await waitFor(() => expect(city).toHaveValue("Rajshahi"));
+    await pickRescheduleDate();
+    await waitFor(() =>
+      expect(mocks.sessions).toHaveBeenLastCalledWith({
+        data: { categoryId: 159, city: "Rajshahi", examDate: "2026-12-01" },
+      }),
+    );
+    expect(city).toHaveValue("Rajshahi");
+    expect(within(city).queryByRole("option", { name: "Sylhet" })).not.toBeInTheDocument();
+    fireEvent.change(city, { target: { value: "Khulna" } });
+    expect(screen.getByRole("button", { name: "পরীক্ষার তারিখ" })).toHaveTextContent("তারিখ বাছুন");
+    await pickRescheduleDate();
+    await waitFor(() =>
+      expect(mocks.sessions).toHaveBeenLastCalledWith({
+        data: { categoryId: 159, city: "Khulna", examDate: "2026-12-01" },
+      }),
+    );
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+  it("uses Takamol's per-occupation language automatically and displays bn as Bengali", async () => {
+    mocks.detail.mockResolvedValue({ ok: true, data: { ...detail, languageCode: "en" } });
+    mocks.takamol.mockResolvedValue({
+      success: true,
+      data: { occupations: [{ occupation_id: 11, language_code: "bn" }] },
+    });
+    renderPanel();
+    const language = await screen.findByLabelText("পরীক্ষার ভাষা");
+    await waitFor(() => expect(language).toHaveValue("bn"));
+    expect(language).toBeDisabled();
+    expect(within(language).getByRole("option", { name: "বাংলা" })).toHaveValue("bn");
+    expect(within(language).queryByRole("option", { name: "ইংরেজি" })).not.toBeInTheDocument();
+    await pickRescheduleDate();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" }));
+    await waitFor(() =>
+      expect(mocks.reschedule).toHaveBeenCalledWith({
+        data: expect.objectContaining({ languageCode: "bn" }),
+      }),
+    );
+  });
+  it("matches the Takamol language by official occupation key when catalogue ids differ", async () => {
+    mocks.takamol.mockResolvedValue({
+      success: true,
+      data: {
+        occupations: [{ occupation_id: 999, occupation_key: "933301", language_code: "bn" }],
+      },
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("পরীক্ষার ভাষা")).toHaveValue("bn"));
+  });
+  it("fetches full SVP language options when Takamol omits them and preserves the provider's preferred question code", async () => {
+    mocks.occupation.mockResolvedValue({
+      ok: true,
+      data: {
+        id: 11,
+        categoryId: 159,
+        languages: [
+          { code: "BENG10", label: "Bengali", questionCount: 10, nonTargeted: false },
+          { code: "BENG30", label: "Bengali", questionCount: 30, nonTargeted: false },
+        ],
+      },
+    });
+    mocks.detail.mockResolvedValue({
+      ok: true,
+      data: { ...detail, languageCode: "bn", languages: [] },
+    });
+    renderPanel();
+    const language = await screen.findByLabelText("পরীক্ষার ভাষা");
+    await waitFor(() => expect(language).toHaveValue("BENG30"));
+    expect(within(language).getByRole("option", { name: "বাংলা" })).toHaveValue("BENG30");
+    expect(language).toBeDisabled();
+  });
+  it("waits for automatic language metadata before enabling date selection and confirmation", async () => {
+    let finish!: (result: unknown) => void;
+    mocks.takamol.mockImplementation(({ data }: { data: { endpoint: string } }) =>
+      data.endpoint === "occupations"
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ success: false }),
+    );
+    renderPanel();
+    const confirm = await screen.findByRole("button", { name: "তারিখ বদল নিশ্চিত করুন" });
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole("button", { name: "পরীক্ষার তারিখ" })).toBeDisabled();
+    await act(async () =>
+      finish({
+        success: true,
+        data: { occupations: [{ occupation_id: 11, language_code: "bn" }] },
+      }),
+    );
+    await waitFor(() => expect(screen.getByLabelText("পরীক্ষার ভাষা")).toHaveValue("bn"));
+    expect(screen.getByRole("button", { name: "পরীক্ষার তারিখ" })).toHaveTextContent("তারিখ বাছুন");
+    expect(confirm).toBeDisabled();
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+  });
+});
+
+it("labels an automatic Takamol code using the complete SVP catalogue without exposing it as raw text", async () => {
+  mocks.takamol.mockResolvedValue({
+    success: true,
+    data: { occupations: [{ occupation_id: 11, language_code: "LOABB" }] },
+  });
+  mocks.occupation.mockResolvedValue({
+    ok: true,
+    data: {
+      id: 11,
+      categoryId: 159,
+      languages: [
+        { code: "LOABB", label: "Bengali", questionCount: 0, nonTargeted: true },
+        { code: "LOAEE", label: "English", questionCount: 15, nonTargeted: false },
+      ],
+    },
+  });
+  renderPanel();
+  const language = await screen.findByLabelText("পরীক্ষার ভাষা");
+  await waitFor(() => expect(language).toHaveAttribute("aria-busy", "false"));
+  expect(language).toHaveValue("LOABB");
+  expect(within(language).getByRole("option", { name: "বাংলা" })).toHaveValue("LOABB");
+  expect(within(language).queryByRole("option", { name: "LOABB" })).not.toBeInTheDocument();
 });

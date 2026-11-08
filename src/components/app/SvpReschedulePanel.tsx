@@ -1,9 +1,8 @@
-import { svpLanguageLabel } from "@/lib/svp-mail";
+import { svpLanguageLabel, svpLanguageOptions } from "@/lib/svp-language.shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Field, NativeSelect } from "@/components/app/ui-bits";
 import { SvpSessionOptions } from "@/components/app/SvpSessionOptions";
 import { SvpDateCalendar } from "@/components/app/SvpDateCalendar";
@@ -28,11 +27,10 @@ import { lookupTakamolAvailability } from "@/lib/takamol-availability.functions"
 import {
   mapTakamolRowsToSvpSlots,
   parseCities,
+  parseOccupationLanguages,
   parseTakamolRescheduleRows,
   parseTestCenters,
 } from "@/lib/takamol-availability.ui";
-
-const MANUAL_CITY_OPTION = "__manual_city__";
 
 function splitDateTime(value: string): { date: string; time: string } {
   const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/.exec(value);
@@ -89,9 +87,7 @@ export function SvpReschedulePanel({
   ) => void;
 }) {
   const queryClient = useQueryClient();
-  const [city, setCity] = useState("");
-  const [manualCityMode, setManualCityMode] = useState(false);
-  const [manualCityName, setManualCityName] = useState("");
+  const [city, setCity] = useState<string | null>(null);
   const [languageCode, setLanguageCode] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(() => monthKey(new Date()));
   const [selectedDate, setSelectedDate] = useState<SvpAvailableDate | null>(null);
@@ -118,21 +114,56 @@ export function SvpReschedulePanel({
     detailQuery.data && !detailQuery.data.ok && detailQuery.data.needsSignIn,
   );
   const currentLanguageCode = detail?.languageCode?.trim() ?? "";
+  const effectiveCountryId = detail?.countryId ?? countryId ?? null;
+  const occupationQuery = useQuery({
+    queryKey: ["svp-reschedule-occupation", reservationId, detail?.occupationId],
+    queryFn: () =>
+      getSvpOccupationById({
+        data: {
+          occupationId: detail!.occupationId!,
+          ...(detail?.occupationName ? { name: detail.occupationName } : {}),
+        },
+      }),
+    enabled: detail?.occupationId != null,
+    retry: false,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const occupation = occupationQuery.data?.ok ? occupationQuery.data.data : null;
+  const effectiveCategoryId = detail?.categoryId ?? categoryId ?? occupation?.categoryId ?? null;
+  const takamolOccupationsQuery = useQuery({
+    queryKey: ["takamol-occupations"],
+    queryFn: () => lookupTakamolAvailability({ data: { endpoint: "occupations" } }),
+    enabled: detail != null,
+    retry: false,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const takamolLanguageCode = useMemo(() => {
+    if (!takamolOccupationsQuery.data?.success) return null;
+    const entries = parseOccupationLanguages(takamolOccupationsQuery.data.data);
+    return (
+      entries.find((entry) => Number(entry.occupationId) === detail?.occupationId)?.languageCode ??
+      (occupation?.occupationKey
+        ? entries.find((entry) => entry.occupationKey === occupation.occupationKey)?.languageCode
+        : null) ??
+      null
+    );
+  }, [detail?.occupationId, occupation?.occupationKey, takamolOccupationsQuery.data]);
   const languageOptions = useMemo(() => {
-    const all = detail?.languages ?? [];
-    const filtered = all.filter((entry) => entry.nonTargeted === !isTargeted);
-    const source = filtered.length > 0 ? filtered : all;
-    const byLabel = new Map<string, (typeof all)[number]>();
-    for (const entry of source) {
-      const key = entry.label.toLowerCase();
-      const existing = byLabel.get(key);
-      if (!existing || (entry.questionCount ?? 0) > (existing.questionCount ?? 0)) {
-        byLabel.set(key, entry);
-      }
-    }
-    const options = [...byLabel.values()];
-    // Keep the reservation's code selectable when the catalogue omits it.
-    if (currentLanguageCode && !options.some((entry) => entry.code === currentLanguageCode)) {
+    const options = svpLanguageOptions(
+      occupation?.languages ?? [],
+      detail?.languages ?? [],
+      isTargeted,
+    );
+    if (
+      currentLanguageCode &&
+      !options.some(
+        (entry) =>
+          entry.code === currentLanguageCode ||
+          svpLanguageLabel(entry.label) === svpLanguageLabel(currentLanguageCode),
+      )
+    ) {
       options.push({
         code: currentLanguageCode,
         label: currentLanguageCode,
@@ -141,39 +172,34 @@ export function SvpReschedulePanel({
       });
     }
     return options;
-  }, [currentLanguageCode, detail, isTargeted]);
+  }, [occupation?.languages, detail?.languages, isTargeted, currentLanguageCode]);
+  const languageChoices = takamolLanguageCode
+    ? [
+        {
+          code: takamolLanguageCode,
+          label:
+            occupation?.languages?.find((entry) => entry.code === takamolLanguageCode)?.label ??
+            detail?.languages.find((entry) => entry.code === takamolLanguageCode)?.label ??
+            languageOptions.find((entry) => entry.code === takamolLanguageCode)?.label ??
+            takamolLanguageCode,
+        },
+      ]
+    : languageOptions;
+  const currentLanguage =
+    languageOptions.find((entry) => entry.code === currentLanguageCode) ??
+    languageOptions.find(
+      (entry) => svpLanguageLabel(entry.label) === svpLanguageLabel(currentLanguageCode),
+    );
   const activeLanguage =
-    languageCode && languageOptions.some((entry) => entry.code === languageCode)
+    takamolLanguageCode ??
+    (languageOptions.some((entry) => entry.code === languageCode)
       ? languageCode
-      : currentLanguageCode
-        ? currentLanguageCode
-        : (languageOptions[0]?.code ?? "en");
-  const effectiveCountryId = detail?.countryId ?? countryId ?? null;
-  const categoryQuery = useQuery({
-    queryKey: ["svp-reschedule-category", reservationId, detail?.occupationId],
-    queryFn: () => getSvpOccupationById({ data: { occupationId: detail!.occupationId! } }),
-    enabled:
-      isTargeted &&
-      detail != null &&
-      detail.categoryId == null &&
-      categoryId == null &&
-      detail.occupationId != null,
-    retry: false,
-  });
-  const effectiveCategoryId =
-    detail?.categoryId ??
-    categoryId ??
-    (categoryQuery.data?.ok ? categoryQuery.data.data.categoryId : null);
-  const selectedCity = city || (isTargeted ? detail?.city : "") || "";
-  // SVP-owned codes to retry with when SVP rejects the selected language, like booking.
-  const fallbackLanguageCodes = useMemo(
-    () =>
-      languageOptions
-        .map((entry) => entry.code)
-        .filter((code) => code && code !== activeLanguage)
-        .slice(0, 6),
-    [activeLanguage, languageOptions],
-  );
+      : (currentLanguage?.code ?? (languageOptions.length === 1 ? languageOptions[0].code : "")));
+  const languagesLoading = occupationQuery.isFetching || takamolOccupationsQuery.isFetching;
+  const fallbackLanguageCodes = languageOptions
+    .map((entry) => entry.code)
+    .filter((code) => code !== activeLanguage)
+    .slice(0, 6);
   const monthOptions = useMemo(() => buildMonthOptions(), []);
   const datesQuery = useQuery({
     queryKey: ["svp-reschedule-dates", reservationId, effectiveCategoryId, effectiveCountryId],
@@ -190,17 +216,6 @@ export function SvpReschedulePanel({
     refetchOnWindowFocus: false,
   });
   const dates = useMemo(() => (datesQuery.data?.ok ? datesQuery.data.data : []), [datesQuery.data]);
-  const dateOptions = useMemo(() => {
-    const map = new Map<string, SvpAvailableDate>();
-    for (const entry of dates) {
-      if (city && entry.city && entry.city.trim().toLowerCase() !== city.trim().toLowerCase())
-        continue;
-      const { date } = splitDateTime(entry.startAt);
-      if (date && !map.has(date)) map.set(date, entry);
-    }
-    return [...map.values()];
-  }, [city, dates]);
-
   const citiesQuery = useQuery({
     queryKey: ["takamol-reschedule-cities", effectiveCategoryId],
     queryFn: () =>
@@ -218,10 +233,40 @@ export function SvpReschedulePanel({
   const cityListFailed =
     citiesQuery.isError || Boolean(citiesQuery.data && !citiesQuery.data.success);
   const cityListEmpty = Boolean(citiesQuery.data?.success && takamolCities.length === 0);
+  const cityOptions = useMemo(() => {
+    const available = isTargeted
+      ? dates
+          .filter((entry) => entry.seats !== 0)
+          .map((entry) => entry.city)
+          .filter((entry): entry is string => Boolean(entry))
+      : takamolCities;
+    const keepCurrent = isTargeted
+      ? !datesQuery.data || dates.some((entry) => !entry.city && entry.seats !== 0)
+      : available.length === 0;
+    const values = keepCurrent && detail?.city ? [...available, detail.city] : available;
+    const unique = new Map<string, string>();
+    for (const value of values) unique.set(value.trim().toLowerCase(), value.trim());
+    return [...unique.values()].sort((a, b) => a.localeCompare(b));
+  }, [dates, datesQuery.data, detail?.city, isTargeted, takamolCities]);
+  const selectedCity =
+    city !== null
+      ? (cityOptions.find((entry) => entry.toLowerCase() === city.toLowerCase()) ?? "")
+      : (cityOptions.find((entry) => entry.toLowerCase() === detail?.city?.trim().toLowerCase()) ??
+        (cityOptions.length === 1 ? cityOptions[0] : ""));
+  const dateOptions = useMemo(() => {
+    const map = new Map<string, SvpAvailableDate>();
+    for (const entry of dates) {
+      if (entry.seats === 0 || !selectedCity) continue;
+      if (entry.city && entry.city.trim().toLowerCase() !== selectedCity.toLowerCase()) continue;
+      const { date } = splitDateTime(entry.startAt);
+      if (date && !map.has(date)) map.set(date, entry);
+    }
+    return [...map.values()];
+  }, [selectedCity, dates]);
   const centersQuery = useQuery({
-    queryKey: ["takamol-reschedule-centers", city],
-    queryFn: () => lookupTakamolAvailability({ data: { endpoint: "centers", city } }),
-    enabled: !isTargeted && Boolean(city),
+    queryKey: ["takamol-reschedule-centers", selectedCity],
+    queryFn: () => lookupTakamolAvailability({ data: { endpoint: "centers", city: selectedCity } }),
+    enabled: !isTargeted && Boolean(selectedCity),
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -231,17 +276,18 @@ export function SvpReschedulePanel({
   );
 
   const takamolSessionsQuery = useQuery({
-    queryKey: ["takamol-reschedule-sessions", effectiveCategoryId, city, prometricDate],
+    queryKey: ["takamol-reschedule-sessions", effectiveCategoryId, selectedCity, prometricDate],
     queryFn: () =>
       lookupTakamolAvailability({
         data: {
           endpoint: "sessions",
           categoryId: String(effectiveCategoryId),
-          city,
+          city: selectedCity,
           examDate: prometricDate as string,
         },
       }),
-    enabled: !isTargeted && effectiveCategoryId != null && Boolean(city) && Boolean(prometricDate),
+    enabled:
+      !isTargeted && effectiveCategoryId != null && Boolean(selectedCity) && Boolean(prometricDate),
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -251,26 +297,32 @@ export function SvpReschedulePanel({
         ? parseTakamolRescheduleRows(
             takamolSessionsQuery.data.data,
             takamolCenters,
-            city,
+            selectedCity,
             prometricDate,
           )
         : [],
-    [city, prometricDate, takamolCenters, takamolSessionsQuery.data],
+    [selectedCity, prometricDate, takamolCenters, takamolSessionsQuery.data],
   );
   // Mirror new booking: SVP site dates and slots drive the safe reschedule selection. Takamol
   // rows are used only as optional availability metadata, never to guess an SVP slot identifier.
   const sitesQuery = useQuery({
-    queryKey: ["svp-reschedule-sites", activeLanguage, city, effectiveCountryId, selectedMonth],
+    queryKey: [
+      "svp-reschedule-sites",
+      activeLanguage,
+      selectedCity,
+      effectiveCountryId,
+      selectedMonth,
+    ],
     queryFn: () =>
       listSvpPrometricSites({
         data: {
           prometricCode: activeLanguage,
-          city,
+          city: selectedCity,
           countryId: effectiveCountryId,
           month: selectedMonth,
         },
       }),
-    enabled: !isTargeted && Boolean(city),
+    enabled: !isTargeted && Boolean(selectedCity) && Boolean(activeLanguage) && !languagesLoading,
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -286,11 +338,11 @@ export function SvpReschedulePanel({
       for (const date of site.dates) {
         if (date.slice(0, 7) !== selectedMonth) continue;
         if (selectedMonth === today.slice(0, 7) && date < today) continue;
-        if (!map.has(date)) map.set(date, { date, city: site.city ?? city });
+        if (!map.has(date)) map.set(date, { date, city: site.city ?? selectedCity });
       }
     }
     return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
-  }, [city, prometricSites, selectedMonth]);
+  }, [selectedCity, prometricSites, selectedMonth]);
   const siteIdsForDate = prometricSites
     .filter((site) => prometricDate && site.dates.includes(prometricDate))
     .map((site) => site.siteId);
@@ -324,11 +376,11 @@ export function SvpReschedulePanel({
             takamolSessionRows,
             prometricSites,
             prometricSlots,
-            city,
+            selectedCity,
             prometricDate,
           )
         : [],
-    [city, prometricDate, prometricSites, prometricSlots, takamolSessionRows],
+    [selectedCity, prometricDate, prometricSites, prometricSlots, takamolSessionRows],
   );
   const slotSeats = useCallback(
     (slot: SvpPrometricSlot) =>
@@ -373,6 +425,8 @@ export function SvpReschedulePanel({
   const availabilityQuery = isTargeted ? sessionsQuery : slotsQuery;
   const canConfirmReschedule =
     Boolean(detail?.canBeRescheduled) &&
+    Boolean(activeLanguage) &&
+    !languagesLoading &&
     !detailQuery.isFetching &&
     !detailQuery.isError &&
     (rescheduleTimes === null || rescheduleTimes > 0) &&
@@ -420,7 +474,8 @@ export function SvpReschedulePanel({
           examId: prometricExamId,
           slotId: currentSlot.id,
           siteId: currentSlot.siteId,
-          siteCity: prometricSites.find((site) => site.siteId === currentSlot.siteId)?.city ?? city,
+          siteCity:
+            prometricSites.find((site) => site.siteId === currentSlot.siteId)?.city ?? selectedCity,
           languageCode: activeLanguage,
           duration: currentSlot.duration,
           startAt: currentSlot.startAt,
@@ -464,24 +519,15 @@ export function SvpReschedulePanel({
 
   const selectCity = (value: string) => {
     resetSelection();
-    if (value === MANUAL_CITY_OPTION) {
-      setCity("");
-      setManualCityName("");
-      setManualCityMode(true);
-      return;
-    }
-    setManualCityMode(false);
-    setManualCityName("");
     setCity(value);
   };
 
-  const applyManualCity = () => {
-    const nextCity = manualCityName.trim().replace(/\s+/g, " ");
-    if (!nextCity) return;
-    resetSelection();
-    setCity(nextCity);
-    setManualCityMode(false);
-  };
+  useEffect(() => {
+    setSelectedDate(null);
+    setSelectedSession(null);
+    setPrometricDate(null);
+    setSelectedSlot(null);
+  }, [selectedCity, activeLanguage]);
 
   const selectDateOption = (entry: { date: string; city: string | null }) => {
     setSelectedSession(null);
@@ -513,12 +559,12 @@ export function SvpReschedulePanel({
         endAt: null,
         duration: slot.duration,
         availableSeats: slot.availableSeats ?? null,
-        city: site?.city ?? city,
+        city: site?.city ?? selectedCity,
         centerName: site?.name ?? null,
         siteId: slot.siteId,
       });
     },
-    [city, prometricSites],
+    [selectedCity, prometricSites],
   );
 
   useEffect(() => {
@@ -646,21 +692,6 @@ export function SvpReschedulePanel({
     );
   }
 
-  const cityOptions = isTargeted
-    ? [
-        ...new Set(
-          [detail.city, ...dates.map((entry) => entry.city)].filter((entry): entry is string =>
-            Boolean(entry),
-          ),
-        ),
-      ]
-    : [
-        ...new Set([
-          ...takamolCities,
-          ...(detail?.city ? [detail.city] : []),
-          ...(city ? [city] : []),
-        ]),
-      ].sort((a, b) => a.localeCompare(b));
   const shownDateOptions: Array<{ date: string; city: string | null; seats?: number | null }> =
     isTargeted
       ? dateOptions.map((entry) => ({
@@ -686,7 +717,7 @@ export function SvpReschedulePanel({
         startAt: entry.startAt,
         endAt: entry.endAt,
         center: entry.centerName,
-        city: entry.city ?? city,
+        city: entry.city ?? selectedCity,
         seats: entry.availableSeats,
         selected: selectedSession?.id === entry.id && !selectedSlot,
         onSelect: () => {
@@ -701,7 +732,7 @@ export function SvpReschedulePanel({
           key: `p-${slot.id}`,
           startAt: slot.startAt,
           center: site?.name ?? takamolMatch?.row.centerName ?? null,
-          city: site?.city ?? city,
+          city: site?.city ?? selectedCity,
           seats: slotSeats(slot),
           selected: selectedSlot?.id === slot.id,
           onSelect: () => chooseSlot(slot),
@@ -737,9 +768,9 @@ export function SvpReschedulePanel({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="শহর *">
+        <Field label="শহর">
           <NativeSelect
-            value={manualCityMode ? MANUAL_CITY_OPTION : selectedCity}
+            value={selectedCity}
             onChange={(event) => selectCity(event.target.value)}
             disabled={isTargeted ? datesQuery.isFetching : citiesQuery.isFetching}
             required
@@ -750,21 +781,25 @@ export function SvpReschedulePanel({
                 {entry}
               </option>
             ))}
-            {!isTargeted && <option value={MANUAL_CITY_OPTION}>অন্য শহর লিখুন…</option>}
           </NativeSelect>
         </Field>
         <Field label="পরীক্ষার ভাষা">
           <NativeSelect
             value={activeLanguage}
+            aria-busy={languagesLoading}
+            disabled={
+              languagesLoading || Boolean(takamolLanguageCode) || languageChoices.length < 2
+            }
+            required
             onChange={(event) => {
               setLanguageCode(event.target.value);
               resetSelection();
             }}
           >
-            {(languageOptions.length > 0
-              ? languageOptions
-              : [{ code: "en", label: "English", questionCount: null, nonTargeted: false }]
-            ).map((entry) => (
+            {!activeLanguage && (
+              <option value="">{languagesLoading ? "ভাষা আসছে…" : "ভাষা বাছুন"}</option>
+            )}
+            {languageChoices.map((entry) => (
               <option key={entry.code} value={entry.code}>
                 {svpLanguageLabel(entry.label)}
               </option>
@@ -772,28 +807,6 @@ export function SvpReschedulePanel({
           </NativeSelect>
         </Field>
       </div>
-
-      {!isTargeted && manualCityMode && (
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <Field label="শহরের নাম">
-            <Input
-              value={manualCityName}
-              onChange={(event) => setManualCityName(event.target.value)}
-              placeholder="শহরের নাম লিখুন"
-              autoComplete="address-level2"
-              maxLength={100}
-            />
-          </Field>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={applyManualCity}
-            disabled={!manualCityName.trim()}
-          >
-            খুঁজুন
-          </Button>
-        </div>
-      )}
 
       {!isTargeted && citiesQuery.isFetching && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
@@ -817,7 +830,7 @@ export function SvpReschedulePanel({
           size="sm"
           onClick={() => {
             void detailQuery.refetch();
-            if (detail?.occupationId) void categoryQuery.refetch();
+            if (detail?.occupationId) void occupationQuery.refetch();
           }}
         >
           আবার দেখুন
@@ -838,15 +851,21 @@ export function SvpReschedulePanel({
           {datesNeedSignIn && onReconnect ? "সংযোগ করুন" : "তারিখ আবার দেখুন"}
         </Button>
       )}
-      {(isTargeted || Boolean(city.trim())) && (
+      {(isTargeted || Boolean(selectedCity.trim())) && (
         <SvpDateCalendar
           options={shownDateOptions}
           value={activeDateValue}
           loading={datesLoading}
-          disabled={datesLoading || (isTargeted ? effectiveCategoryId == null : !city.trim())}
+          disabled={
+            languagesLoading ||
+            datesLoading ||
+            (isTargeted
+              ? effectiveCategoryId == null || (cityOptions.length > 0 && !selectedCity)
+              : !selectedCity.trim())
+          }
           onSelect={(date) =>
             selectDateOption(
-              shownDateOptions.find((entry) => entry.date === date) ?? { date, city },
+              shownDateOptions.find((entry) => entry.date === date) ?? { date, city: selectedCity },
             )
           }
           {...(!isTargeted
