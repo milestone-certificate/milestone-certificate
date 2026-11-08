@@ -45,6 +45,7 @@ import { Route as ApiPublicCronExamSmsRouteImport } from './routes/api/public/cr
 import { Route as ApiPublicCronMessagingRouteImport } from './routes/api/public/cron/messaging'
 import { Route as ApiPublicCronSvpPendingCancelRouteImport } from './routes/api/public/cron/svp-pending-cancel'
 import { Route as ApiPublicCronSvpResultsRouteImport } from './routes/api/public/cron/svp-results'
+import { Route as ApiPaymentsRspayDepositIdTokenEventRouteImport } from './routes/api/payments/rspay/$depositId/$token/$event'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -232,6 +233,12 @@ const ApiPublicCronSvpResultsRoute = ApiPublicCronSvpResultsRouteImport.update({
   path: '/api/public/cron/svp-results',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPaymentsRspayDepositIdTokenEventRoute =
+  ApiPaymentsRspayDepositIdTokenEventRouteImport.update({
+    id: '/api/payments/rspay/$depositId/$token/$event',
+    path: '/api/payments/rspay/$depositId/$token/$event',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -269,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/api/public/cron/messaging': typeof ApiPublicCronMessagingRoute
   '/api/public/cron/svp-pending-cancel': typeof ApiPublicCronSvpPendingCancelRoute
   '/api/public/cron/svp-results': typeof ApiPublicCronSvpResultsRoute
+  '/api/payments/rspay/$depositId/$token/$event': typeof ApiPaymentsRspayDepositIdTokenEventRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -306,6 +314,7 @@ export interface FileRoutesByTo {
   '/api/public/cron/messaging': typeof ApiPublicCronMessagingRoute
   '/api/public/cron/svp-pending-cancel': typeof ApiPublicCronSvpPendingCancelRoute
   '/api/public/cron/svp-results': typeof ApiPublicCronSvpResultsRoute
+  '/api/payments/rspay/$depositId/$token/$event': typeof ApiPaymentsRspayDepositIdTokenEventRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -345,6 +354,7 @@ export interface FileRoutesById {
   '/api/public/cron/messaging': typeof ApiPublicCronMessagingRoute
   '/api/public/cron/svp-pending-cancel': typeof ApiPublicCronSvpPendingCancelRoute
   '/api/public/cron/svp-results': typeof ApiPublicCronSvpResultsRoute
+  '/api/payments/rspay/$depositId/$token/$event': typeof ApiPaymentsRspayDepositIdTokenEventRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -384,6 +394,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/messaging'
     | '/api/public/cron/svp-pending-cancel'
     | '/api/public/cron/svp-results'
+    | '/api/payments/rspay/$depositId/$token/$event'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -421,6 +432,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/messaging'
     | '/api/public/cron/svp-pending-cancel'
     | '/api/public/cron/svp-results'
+    | '/api/payments/rspay/$depositId/$token/$event'
   id:
     | '__root__'
     | '/'
@@ -459,6 +471,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/messaging'
     | '/api/public/cron/svp-pending-cancel'
     | '/api/public/cron/svp-results'
+    | '/api/payments/rspay/$depositId/$token/$event'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -473,6 +486,7 @@ export interface RootRouteChildren {
   ApiPublicCronMessagingRoute: typeof ApiPublicCronMessagingRoute
   ApiPublicCronSvpPendingCancelRoute: typeof ApiPublicCronSvpPendingCancelRoute
   ApiPublicCronSvpResultsRoute: typeof ApiPublicCronSvpResultsRoute
+  ApiPaymentsRspayDepositIdTokenEventRoute: typeof ApiPaymentsRspayDepositIdTokenEventRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -729,6 +743,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCronSvpResultsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/payments/rspay/$depositId/$token/$event': {
+      id: '/api/payments/rspay/$depositId/$token/$event'
+      path: '/api/payments/rspay/$depositId/$token/$event'
+      fullPath: '/api/payments/rspay/$depositId/$token/$event'
+      preLoaderRoute: typeof ApiPaymentsRspayDepositIdTokenEventRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -803,6 +824,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicCronMessagingRoute: ApiPublicCronMessagingRoute,
   ApiPublicCronSvpPendingCancelRoute: ApiPublicCronSvpPendingCancelRoute,
   ApiPublicCronSvpResultsRoute: ApiPublicCronSvpResultsRoute,
+  ApiPaymentsRspayDepositIdTokenEventRoute:
+    ApiPaymentsRspayDepositIdTokenEventRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

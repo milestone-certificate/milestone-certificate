@@ -10,6 +10,42 @@ export type Occupation = Database["public"]["Tables"]["occupations"]["Row"];
 export type Reminder = Database["public"]["Tables"]["reminders"]["Row"];
 export type ExamResult = Database["public"]["Enums"]["exam_result"];
 
+export const rspayDepositsQ = (userId: string, compact: boolean, page = 0) =>
+  queryOptions({
+    queryKey: ["rspay-records", userId, compact, page],
+    queryFn: async () => {
+      const size = compact ? 5 : 25;
+      const { data, error } = await supabase
+        .from("wallet_deposits")
+        .select(
+          "id, user_id, amount, method, gateway_status, gateway_short_code, gateway_transaction_id, created_at",
+        )
+        .eq("provider", "rspay")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(page * size, (page + 1) * size - 1);
+      if (error) throw new Error("Payment records unavailable");
+      return data;
+    },
+    retry: false,
+    refetchInterval: 30_000,
+  });
+
+export const walletPaymentProfilesQ = (userId: string, ids: string[]) =>
+  queryOptions({
+    queryKey: ["wallet-payment-profiles", userId, ids],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id,full_name,email")
+        .in("id", ids);
+      if (error) throw new Error("Profiles unavailable");
+      return data;
+    },
+    staleTime: 60_000,
+  });
+
 export const RESULTS: ExamResult[] = ["PENDING", "PASS", "FAIL", "ABSENT", "CANCELLED"];
 export const RESULT_LABEL: Record<ExamResult, string> = {
   PENDING: "অপেক্ষমান",

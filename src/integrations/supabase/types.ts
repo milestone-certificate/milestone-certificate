@@ -1041,6 +1041,10 @@ export type Database = {
       };
       wallet_deposits: {
         Row: {
+          provider: string;
+          gateway_status: string | null;
+          gateway_short_code: string | null;
+          gateway_transaction_id: string | null;
           amount: number;
           created_at: string;
           id: string;
@@ -1054,6 +1058,10 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          provider?: string;
+          gateway_status?: string | null;
+          gateway_short_code?: string | null;
+          gateway_transaction_id?: string | null;
           amount: number;
           created_at?: string;
           id?: string;
@@ -1067,6 +1075,10 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          provider?: string;
+          gateway_status?: string | null;
+          gateway_short_code?: string | null;
+          gateway_transaction_id?: string | null;
           amount?: number;
           created_at?: string;
           id?: string;
@@ -1078,6 +1090,51 @@ export type Database = {
           reviewed_by?: string | null;
           status?: string;
           user_id?: string;
+        };
+        Relationships: [];
+      };
+      wallet_rspay_orders: {
+        Row: {
+          deposit_id: string;
+          user_id: string;
+          request_id: string;
+          amount: number;
+          method: string;
+          identity_address: string;
+          callback_hash: string;
+          callback_private: boolean;
+          short_code: string | null;
+          checkout_url: string | null;
+          status: string;
+          transaction_id: string | null;
+          deferred_event: Json | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          deposit_id: string;
+          user_id: string;
+          request_id: string;
+          amount: number;
+          method: string;
+          identity_address: string;
+          callback_hash: string;
+          callback_private?: boolean;
+          short_code?: string | null;
+          checkout_url?: string | null;
+          status?: string;
+          transaction_id?: string | null;
+          deferred_event?: Json | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          short_code?: string | null;
+          checkout_url?: string | null;
+          status?: string;
+          transaction_id?: string | null;
+          deferred_event?: Json | null;
+          updated_at?: string;
         };
         Relationships: [];
       };
@@ -1122,6 +1179,32 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      wallet_rspay_begin: {
+        Args: {
+          _user_id: string;
+          _request_id: string;
+          _amount: number;
+          _method: string;
+          _identity: string;
+          _callback_hash: string;
+        };
+        Returns: Json;
+      };
+      wallet_rspay_bind: {
+        Args: {
+          _deposit_id: string;
+          _short_code: string;
+          _url: string;
+          _callback_private?: boolean;
+        };
+        Returns: Json;
+      };
+      wallet_rspay_event: {
+        Args: { _deposit_id: string; _callback_hash: string; _event: Json; _verified?: boolean };
+        Returns: Json;
+      };
+      wallet_rspay_link_failed: { Args: { _deposit_id: string }; Returns: undefined };
+
       candidate_fee_settled: {
         Args: { _candidate_id: string };
         Returns: boolean;

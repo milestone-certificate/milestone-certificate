@@ -3,6 +3,7 @@ import { ReceiveAnalyticsButton } from "@/components/app/ReceiveStatus";
 import { CandidatePhoto } from "@/components/app/CandidatePhoto";
 import { AgentDashboard } from "@/components/app/AgentDashboard";
 import { AdminActivity } from "@/components/app/AdminActivity";
+import { RspayDepositRecords } from "@/components/app/RspayDeposits";
 import { AdminSystemOverview } from "@/components/app/AdminSystemOverview";
 import { AgentWhatsAppReminder } from "@/components/app/AgentWhatsAppReminder";
 import { isManager } from "@/lib/roles";
@@ -162,6 +163,7 @@ function Dashboard() {
       </div>
       {Route.useRouteContext().roles.includes("admin") && <AdminActivity />}
       {Route.useRouteContext().roles.includes("admin") && <AdminSystemOverview />}
+      <RspayDepositRecords userId={Route.useRouteContext().user.id} compact />
       {Route.useRouteContext().roles.includes("admin") && <AgentWhatsAppReminder />}
 
       <div className="mb-5 grid grid-cols-3 gap-2 sm:grid-cols-6">

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Field, NativeSelect } from "@/components/app/ui-bits";
 import { requestWalletDeposit } from "@/lib/wallet";
 import { checkWalletSetup } from "@/lib/wallet.functions";
+import { RspayDepositForm, RspayDepositRecords } from "@/components/app/RspayDeposits";
 
 type Transaction = {
   id: string;
@@ -30,6 +31,7 @@ type Deposit = {
   created_at: string;
   reviewed_at: string | null;
   review_note: string | null;
+  provider?: string;
 };
 
 type Profile = { id: string; full_name: string | null; email: string | null };
@@ -95,7 +97,7 @@ export function WalletPanel() {
   }, []);
 
   const balanceQuery = useQuery({
-    queryKey: ["wallet-balance"],
+    queryKey: ["wallet-balance", userId],
     enabled: Boolean(userId),
     queryFn: async () => {
       const { data, error } = await supabase.rpc("wallet_my_balance");
@@ -107,7 +109,7 @@ export function WalletPanel() {
   });
 
   const transactionsQuery = useQuery({
-    queryKey: ["wallet-transactions", isStaff],
+    queryKey: ["wallet-transactions", userId, isStaff],
     enabled: Boolean(userId),
     queryFn: async (): Promise<Transaction[]> => {
       const { data, error } = await supabase
@@ -123,14 +125,12 @@ export function WalletPanel() {
   });
 
   const depositsQuery = useQuery({
-    queryKey: ["wallet-deposits", isStaff],
+    queryKey: ["wallet-deposits", userId, isStaff],
     enabled: Boolean(userId),
     queryFn: async (): Promise<Deposit[]> => {
       const { data, error } = await supabase
         .from("wallet_deposits")
-        .select(
-          "id, user_id, amount, method, reference, note, status, created_at, reviewed_at, review_note",
-        )
+        .select("*")
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
@@ -141,7 +141,7 @@ export function WalletPanel() {
   });
 
   const profilesQuery = useQuery({
-    queryKey: ["wallet-profiles"],
+    queryKey: ["wallet-profiles", userId],
     enabled: isStaff,
     queryFn: async (): Promise<Profile[]> => {
       const { data, error } = await supabase
@@ -157,7 +157,7 @@ export function WalletPanel() {
   });
 
   const accountsQuery = useQuery({
-    queryKey: ["wallet-accounts"],
+    queryKey: ["wallet-accounts", userId],
     enabled: isStaff,
     queryFn: async (): Promise<{ user_id: string; balance: number }[]> => {
       const { data, error } = await supabase
@@ -207,7 +207,9 @@ export function WalletPanel() {
     );
   }, [accounts, profileName, search]);
 
-  const pendingDeposits = deposits.filter((entry) => entry.status === "pending");
+  const pendingDeposits = deposits.filter(
+    (entry) => entry.status === "pending" && entry.provider !== "rspay",
+  );
   const totalDeposit = transactions
     .filter((entry) => entry.type === "deposit")
     .reduce((sum, entry) => sum + entry.amount, 0);
@@ -337,8 +339,7 @@ export function WalletPanel() {
         <div>
           <h1 className="font-display text-2xl font-bold">ব্যালেন্স ও ডিপোজিট</h1>
           <p className="text-xs text-muted-foreground">
-            প্রতি SVP বুকিং ৳100 — ব্যালেন্স থেকে কাটা হবে। টাকা জমা দিতে ডিপোজিট রিকোয়েস্ট পাঠান,
-            admin approve করবেন।
+            প্রতি SVP বুকিং ৳100 — ব্যালেন্স থেকে কাটা হবে।
           </p>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={refresh} disabled={busy}>
@@ -389,6 +390,9 @@ export function WalletPanel() {
           {message.text}
         </p>
       )}
+
+      <RspayDepositForm userId={userId} />
+      {userId && <RspayDepositRecords userId={userId} />}
 
       {isAdmin && (
         <section className="card-surface space-y-3 p-4 sm:p-5">
@@ -443,7 +447,7 @@ export function WalletPanel() {
       )}
 
       <section className="card-surface space-y-3 p-4 sm:p-5">
-        <h2 className="text-lg font-bold">ডিপোজিট রিকোয়েস্ট</h2>
+        <h2 className="text-lg font-bold">ম্যানুয়াল ডিপোজিট রিকোয়েস্ট</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="টাকার পরিমাণ *">
             <Input
