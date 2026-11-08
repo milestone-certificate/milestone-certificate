@@ -95,8 +95,12 @@ export function resolveSvpSessionAvailability(
       !/[T ]\d{2}:\d{2}/.test(session.startAt) &&
       session.startAt.slice(0, 10) === request.examDate,
   );
-  // Preserve the whole day's candidate set when resolution is incomplete.
-  if (opaqueOnly && resolved.length === sessions.length) return resolved;
+  // These are independent live reads: seat changes (and SVP's day-token
+  // grouping) can change the count between them. The gateway returns its own
+  // complete day catalogue with bookable tokens, not metadata to zip onto the
+  // native list. Validate every gateway row instead of requiring equal counts.
+  // A genuinely partial/unresolved catalogue still falls back to native ids.
+  if (opaqueOnly && resolved.length > 0 && resolved.length === rows.length) return resolved;
   return sessions.map((session) => {
     const detail = resolved.find((entry) => String(entry.id) === String(session.id));
     if (!detail || !svpSessionNeedsDetails(session)) return session;

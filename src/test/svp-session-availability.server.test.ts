@@ -23,11 +23,13 @@ vi.mock("@/lib/takamol-availability.server", () => ({
   fetchTakamolAvailability: mocks.availability,
 }));
 import { listSvpExamSessions } from "@/lib/svp-booking.functions";
+import type { SvpExamSession } from "@/lib/svp-api.shared";
 
 const input = { categoryId: 159, city: "Cumilla", examDate: "2026-11-29" };
-const invoke = () =>
-  (listSvpExamSessions as unknown as (args: unknown) => Promise<{ ok: boolean; data: unknown[] }>)({
-    data: input,
+type SessionResponse = { ok: boolean; data: SvpExamSession[] };
+const invoke = (data = input) =>
+  (listSvpExamSessions as unknown as (args: unknown) => Promise<SessionResponse>)({
+    data,
     context: { userId: "test-user", supabase: {} },
   });
 const opaque = {
@@ -92,6 +94,50 @@ describe("session details API integration", () => {
       ok: true,
       data: [{ id: "native-random-token", centerName: null }],
     });
+  });
+
+  it("returns each date's complete metadata when its native day-token count differs", async () => {
+    mocks.request.mockImplementation(
+      async (_user: string, _path: string, options: { query: { exam_date: string } }) => ({
+        ok: true,
+        payload: {
+          exam_sessions: Array.from({ length: 7 }, (_, i) => ({
+            id: `native-${i}`,
+            start_date_in_tc_time_zone: options.query.exam_date,
+            test_center: { city: "Rajshahi" },
+          })),
+        },
+      }),
+    );
+    mocks.availability.mockImplementation(async (request: { examDate: string }) => ({
+      success: true,
+      data: {
+        sessions: Array.from({ length: request.examDate === "2026-11-23" ? 8 : 6 }, (_, i) => ({
+          encrypted_session_id: `${request.examDate}-provider-${i}`,
+          resolved: true,
+          exam_date: request.examDate,
+          exam_time: "10:00 AM",
+          center_name: "Rajshahi Technical Training Centre",
+          center_city: "Rajshahi",
+          available_seats: 21,
+          category: { id: 159 },
+        })),
+      },
+    }));
+    for (const date of ["2026-11-23", "2026-11-24", "2026-11-23"]) {
+      const result = await invoke({ categoryId: 159, city: "Rajshahi", examDate: date });
+      expect(result.ok).toBe(true);
+      expect(result.data).toHaveLength(date === "2026-11-23" ? 8 : 6);
+      expect(
+        result.data.every(
+          (row) =>
+            row.startAt === `${date} 10:00:00` &&
+            String(row.id).startsWith(date) &&
+            row.centerName === "Rajshahi Technical Training Centre" &&
+            row.availableSeats === 21,
+        ),
+      ).toBe(true);
+    }
   });
 
   it("skips the extra lookup when SVP already supplies full metadata", async () => {

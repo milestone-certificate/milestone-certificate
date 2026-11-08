@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SvpBookingWizard } from "@/components/app/SvpBookingWizard";
 
@@ -1256,6 +1256,62 @@ describe("load-balancer targeted booking", () => {
 });
 
 describe("SVP availability selection", () => {
+  it("loads a newly selected date and ignores a late response from the previous date", async () => {
+    configureTargetedMode();
+    mocks.dates.mockResolvedValue({
+      ok: true,
+      data: [
+        { startAt: "2026-11-23", city: "Rajshahi", centerName: null },
+        { startAt: "2026-11-24", city: "Rajshahi", centerName: null },
+      ],
+    });
+    const daySessions = (date: string, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        ...session,
+        id: (date === "2026-11-23" ? 2300 : 2400) + index,
+        city: "Rajshahi",
+        centerName: `${date} Rajshahi center ${index + 1}`,
+        startAt: `${date} 10:00:00`,
+        availableSeats: 20 + index,
+      }));
+    let finishFirstDay!: (result: { ok: true; data: ReturnType<typeof daySessions> }) => void;
+    const firstDay = new Promise((resolve) => {
+      finishFirstDay = resolve;
+    });
+    mocks.sessions.mockImplementation(({ data }: { data: { examDate: string } }) =>
+      data.examDate === "2026-11-23"
+        ? firstDay
+        : Promise.resolve({ ok: true, data: daySessions(data.examDate, 6) }),
+    );
+    renderWizard();
+    await openDatesStep("Rajshahi");
+    await pickDate("23 Nov 2026");
+    expect(await screen.findByText("Loading the test center…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    await pickDate("24 Nov 2026");
+    await screen.findByText("2026-11-24 Rajshahi center 1");
+    expect(
+      within(screen.getByRole("group", { name: "Test centers" })).getAllByRole("button"),
+    ).toHaveLength(6);
+    await act(async () => {
+      finishFirstDay({ ok: true, data: daySessions("2026-11-23", 8) });
+    });
+    expect(screen.getByRole("button", { name: "Exam date" })).toHaveTextContent("24 Nov 2026");
+    expect(screen.queryByText("2026-11-23 Rajshahi center 1")).not.toBeInTheDocument();
+    await pickDate("23 Nov 2026");
+    await screen.findByText("2026-11-23 Rajshahi center 1");
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("group", { name: "Test centers" })).getAllByRole("button"),
+      ).toHaveLength(8),
+    );
+    expect(mocks.sessions).toHaveBeenCalledWith({
+      data: { categoryId: 159, city: "Rajshahi", examDate: "2026-11-24" },
+    });
+    expect(mocks.targetedHold).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it("loads SVP centers and continues when Takamol is unavailable, without requesting Takamol sessions", async () => {
     mocks.takamol.mockImplementation((request: { data: { endpoint: string } }) =>
       request.data.endpoint === "sessions"

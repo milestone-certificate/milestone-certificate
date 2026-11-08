@@ -89,11 +89,48 @@ describe("resolved SVP availability", () => {
     ).toEqual(sessions);
   });
 
-  it("preserves all native capacity tokens when only part of the date has been resolved", () => {
+  it("preserves all native capacity tokens when the gateway still has unresolved rows", () => {
     const sessions = [native("native-first"), native("native-second")];
-    expect(resolveSvpSessionAvailability(sessions, { sessions: [row()] }, request)).toEqual(
+    expect(
+      resolveSvpSessionAvailability(
+        sessions,
+        { sessions: [row(), row({ encrypted_session_id: "unresolved-token", resolved: false })] },
+        request,
+      ),
+    ).toEqual(sessions);
+  });
+
+  it.each([1, 3, 8])(
+    "uses the complete provider catalogue with %i rows even when the native count differs",
+    (count) => {
+      const sessions = [native("native-first"), native("native-second")];
+      const rows = Array.from({ length: count }, (_, index) =>
+        row({ encrypted_session_id: `provider-${index}`, available_seats: index + 1 }),
+      );
+      const result = resolveSvpSessionAvailability(sessions, { sessions: rows }, request);
+      expect(result).toHaveLength(count);
+      expect(result.map((entry) => entry.id)).toEqual(
+        rows.map((entry) => entry.encrypted_session_id),
+      );
+      expect(
+        result.every(
+          (entry) =>
+            entry.centerName === "Cumilla Technical Training Centre" &&
+            entry.availableSeats !== null &&
+            entry.siteId === null,
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it("does not mistake matching counts for a complete catalogue when one row is invalid", () => {
+    const sessions = [native("native-first")];
+    const result = resolveSvpSessionAvailability(
       sessions,
+      { sessions: [row(), row({ encrypted_session_id: "wrong-day", exam_date: "2026-11-30" })] },
+      request,
     );
+    expect(result).toEqual(sessions);
   });
 
   it("handles noon, midnight and sold-out seats without changing the targeted booking path", () => {
