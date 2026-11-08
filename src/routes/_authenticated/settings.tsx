@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader, Empty, Field, NativeSelect } from "@/components/app/ui-bits";
 import { changeMyAdminEmail } from "@/lib/accounts.functions";
+import { roleSummary } from "@/lib/roles";
 import {
   occQ,
   ttcQ,
@@ -36,9 +37,11 @@ export const Route = createFileRoute("/_authenticated/settings")({
 });
 
 function SettingsPage() {
+  const { roles, user } = Route.useRouteContext();
+  const admin = roles.includes("admin");
   return (
     <div>
-      <PageHeader title="সেটিংস ও অ্যাডমিন প্যানেল" />
+      <PageHeader title={admin ? "সেটিংস ও অ্যাডমিন প্যানেল" : "সেটিংস"} />
       <Tabs defaultValue="notice">
         <TabsList className="mb-4 flex h-auto flex-wrap">
           <TabsTrigger value="notice">এজেন্ট নোটিস</TabsTrigger>
@@ -47,7 +50,7 @@ function SettingsPage() {
           <TabsTrigger value="rem">রিমাইন্ডার</TabsTrigger>
           <TabsTrigger value="users">ব্যবহারকারী</TabsTrigger>
           <TabsTrigger value="gen">সাধারণ</TabsTrigger>
-          <TabsTrigger value="email">অ্যাডমিন ইমেইল</TabsTrigger>
+          {admin && <TabsTrigger value="email">অ্যাডমিন ইমেইল</TabsTrigger>}
         </TabsList>
         <TabsContent value="notice">
           <NoticeEditor />
@@ -67,9 +70,11 @@ function SettingsPage() {
         <TabsContent value="gen">
           <General />
         </TabsContent>
-        <TabsContent value="email">
-          <AdminEmail />
-        </TabsContent>
+        {admin && (
+          <TabsContent value="email">
+            <AdminEmail currentEmail={user.email ?? ""} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
@@ -226,7 +231,7 @@ function Users() {
   return (
     <div className="card-surface max-w-2xl p-4">
       <p className="mb-3 text-sm text-muted-foreground">
-        নতুন ব্যবহারকারী লগইন পেজ থেকে অ্যাকাউন্ট খুলতে পারবেন। প্রথম অ্যাকাউন্ট অ্যাডমিন।
+        ব্যবহারকারীর নাম, ইমেইল ও অনুমোদিত ভূমিকা।
       </p>
       <ul className="divide-y">
         {data?.map((u) => (
@@ -235,7 +240,7 @@ function Users() {
               {u.full_name} <span className="text-sm text-muted-foreground">{u.email}</span>
             </span>
             <span className="rounded-full bg-primary-soft px-2 py-0.5 text-xs text-primary">
-              {u.roles.includes("admin") ? "অ্যাডমিন" : "স্টাফ"}
+              {roleSummary(u.roles)}
             </span>
           </li>
         ))}
@@ -284,8 +289,8 @@ function General() {
   );
 }
 
-function AdminEmail() {
-  const [email, setEmail] = useState("mdahsanulkabir4538@gmail.com");
+function AdminEmail({ currentEmail }: { currentEmail: string }) {
+  const [email, setEmail] = useState(currentEmail);
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);

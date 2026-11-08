@@ -255,3 +255,67 @@ export function pinOcc<T extends { name: string }>(rows: T[]): T[] {
   const isPin = (r: T) => r.name.trim().toLowerCase() === PINNED_OCC;
   return [...rows.filter(isPin), ...rows.filter((r) => !isPin(r))];
 }
+
+export type PortalData = {
+  candidate: Candidate | null;
+  exams: Exam[];
+  occ: Record<string, string>;
+  ttc: Record<string, string>;
+  payments: {
+    id: string;
+    amount: number;
+    method: string;
+    trx_id: string;
+    status: string;
+    created_at: string;
+  }[];
+  instructions: string;
+  agent: { name: string; mobile: string; code: string | null } | null;
+};
+
+export const portalQ = (userId: string) =>
+  queryOptions({
+    queryKey: ["portal", userId],
+    queryFn: async (): Promise<PortalData> => {
+      const c = await supabase
+        .from("candidates")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (c.error) throw new Error("পরীক্ষার্থীর তথ্য লোড করা যায়নি। আবার চেষ্টা করুন।");
+      const [e, o, t, p, s, a] = await Promise.all([
+        c.data
+          ? supabase
+              .from("exams")
+              .select("*")
+              .eq("candidate_id", c.data.id)
+              .order("exam_date", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        supabase.from("occupations").select("id,name"),
+        supabase.from("ttc_centers").select("id,name"),
+        c.data
+          ? supabase
+              .from("payments")
+              .select("id,amount,method,trx_id,status,created_at")
+              .eq("candidate_id", c.data.id)
+              .order("created_at", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        supabase.from("settings").select("value").eq("key", "payment_instructions").maybeSingle(),
+        supabase.rpc("portal_agent_contact"),
+      ]);
+      if ([e, o, t, p, s, a].some((result) => result.error))
+        throw new Error("পোর্টালের তথ্য লোড করা যায়নি। আবার চেষ্টা করুন।");
+      const map = (rows: { id: string; name: string }[] | null) =>
+        Object.fromEntries((rows ?? []).map((r) => [r.id, r.name]));
+      return {
+        candidate: c.data ?? null,
+        exams: e.data ?? [],
+        occ: map(o.data),
+        ttc: map(t.data),
+        payments: (p.data ?? []) as PortalData["payments"],
+        instructions: s.data?.value ?? "",
+        agent: (a.data as PortalData["agent"])?.name ? (a.data as PortalData["agent"]) : null,
+      };
+    },
+  });

@@ -31,6 +31,13 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const intent = useRef<{ key: string; fingerprint: string } | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const availability = useQuery({
     queryKey: ["rspay-availability", userId],
@@ -72,6 +79,7 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
       const result = await startRspayDeposit({
         data: { requestId: intent.current!.key, amount: value.data, method },
       });
+      if (!mounted.current) return;
       if (!result.ok) {
         setMessage(result.message);
         if ("id" in result && typeof result.id === "string") setPaymentId(result.id);

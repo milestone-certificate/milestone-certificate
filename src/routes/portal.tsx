@@ -1,56 +1,11 @@
 import { CandidatePhoto } from "@/components/app/CandidatePhoto";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { queryOptions, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { homeForRoles } from "@/lib/roles";
 import { PortalAssistant } from "@/components/app/PortalAssistant";
-import { RESULT_LABEL, bn, fmtDate, type Candidate, type Exam } from "@/lib/data";
-
-type PortalData = {
-  candidate: Candidate | null;
-  exams: Exam[];
-  occ: Record<string, string>;
-  ttc: Record<string, string>;
-  payments: {
-    id: string;
-    amount: number;
-    method: string;
-    trx_id: string;
-    status: string;
-    created_at: string;
-  }[];
-  instructions: string;
-  agent: { name: string; mobile: string; code: string | null } | null;
-};
-
-const portalQ = queryOptions({
-  queryKey: ["portal"],
-  queryFn: async (): Promise<PortalData> => {
-    const [c, e, o, t, p, s, a] = await Promise.all([
-      supabase.from("candidates").select("*").limit(1).maybeSingle(),
-      supabase.from("exams").select("*").order("exam_date", { ascending: false }),
-      supabase.from("occupations").select("id,name"),
-      supabase.from("ttc_centers").select("id,name"),
-      supabase
-        .from("payments")
-        .select("id,amount,method,trx_id,status,created_at")
-        .order("created_at", { ascending: false }),
-      supabase.from("settings").select("value").eq("key", "payment_instructions").maybeSingle(),
-      supabase.rpc("portal_agent_contact"),
-    ]);
-    const map = (rows: { id: string; name: string }[] | null) =>
-      Object.fromEntries((rows ?? []).map((r) => [r.id, r.name]));
-    return {
-      candidate: c.data ?? null,
-      exams: e.data ?? [],
-      occ: map(o.data),
-      ttc: map(t.data),
-      payments: (p.data ?? []) as PortalData["payments"],
-      instructions: s.data?.value ?? "",
-      agent: (a.data as PortalData["agent"]) ?? null,
-    };
-  },
-});
+import { RESULT_LABEL, bn, fmtDate, portalQ, type PortalData, type Exam } from "@/lib/data";
 
 export const Route = createFileRoute("/portal")({
   ssr: false,
@@ -71,17 +26,21 @@ export const Route = createFileRoute("/portal")({
     ],
   }),
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) throw redirect({ to: "/auth" });
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) throw redirect({ to: "/auth" });
+    const roles = await supabase.from("user_roles").select("role").eq("user_id", data.user.id);
+    if (roles.error) throw new Error("অ্যাক্সেস যাচাই করা যায়নি। আবার চেষ্টা করুন।");
+    if (roles.data?.length) throw redirect({ to: homeForRoles(roles.data.map((row) => row.role)) });
     const { checkDeviceSession, forceSignOut } = await import("@/lib/device-session");
     const reason = await checkDeviceSession();
     if (reason) {
       await forceSignOut(reason);
       throw redirect({ to: "/auth" });
     }
+    return { userId: data.user.id };
   },
-  loader: ({ context }) => context.queryClient.ensureQueryData(portalQ),
-  component: PortalPage,
+  loader: ({ context }) => context.queryClient.ensureQueryData(portalQ(context.userId)),
+  component: PortalRoute,
 });
 
 const badge: Record<string, string> = {
@@ -92,8 +51,12 @@ const badge: Record<string, string> = {
   CANCELLED: "bg-secondary text-secondary-foreground",
 };
 
-function PortalPage() {
-  const { data } = useSuspenseQuery(portalQ);
+function PortalRoute() {
+  const { userId } = Route.useRouteContext();
+  return <PortalPage key={userId} userId={userId} />;
+}
+function PortalPage({ userId }: { userId: string }) {
+  const { data } = useSuspenseQuery(portalQ(userId));
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [cert, setCert] = useState<Exam | null>(null);
@@ -108,7 +71,7 @@ function PortalPage() {
   const logout = async () => {
     await qc.cancelQueries();
     qc.clear();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     navigate({ to: "/auth", replace: true });
   };
 
@@ -317,18 +280,29 @@ function PaymentBox({
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     const amt = Number(amount);
-    if (!(amt > 0)) return alert("সঠিক টাকার পরিমাণ দিন");
+    if (
+      !Number.isFinite(amt) ||
+      amt <= 0 ||
+      amt > due ||
+      Math.abs(Math.round(amt * 100) - amt * 100) > 0.000001
+    )
+      return alert("সঠিক টাকার পরিমাণ দিন");
     if (sender.trim().length < 3 || trx.trim().length < 4)
       return alert("প্রেরকের নম্বর/হিসাব ও TrxID দিন");
     setBusy(true);
     const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
+      setBusy(false);
+      return alert("আবার লগইন করুন");
+    }
     const { error } = await supabase.from("payments").insert({
       candidate_id: candidateId,
       amount: amt,
       method,
       sender: sender.trim().slice(0, 60),
       trx_id: trx.trim().slice(0, 60),
-      created_by: u.user?.id,
+      created_by: u.user.id,
+      status: "pending",
     });
     setBusy(false);
     if (error) return alert("পেমেন্ট জমা দেওয়া যায়নি");

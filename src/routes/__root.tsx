@@ -15,22 +15,24 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { NavLoader } from "@/components/app/WorkerLoader";
 import { supabase } from "@/integrations/supabase/client";
+import { createAuthCacheHandler } from "@/lib/auth-query-cache";
+import { resetDeviceCheckCache } from "@/lib/device-session";
 
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">পেজ পাওয়া যায়নি</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+          এই ঠিকানায় কোনো পেজ নেই। হোম পেজ থেকে আবার শুরু করুন।
         </p>
         <div className="mt-6">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Go home
+            হোমে ফিরুন
           </Link>
         </div>
       </div>
@@ -49,10 +51,10 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          পেজটি লোড করা যায়নি
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          আবার চেষ্টা করুন অথবা হোম পেজে ফিরে যান।
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -62,13 +64,13 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Try again
+            আবার চেষ্টা করুন
           </button>
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            Go home
+            হোমে ফিরুন
           </a>
         </div>
       </div>
@@ -124,11 +126,15 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((event) => {
-      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
-      router.invalidate();
-      if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
-    });
+    const { data } = supabase.auth.onAuthStateChange(
+      createAuthCacheHandler(
+        queryClient,
+        () => {
+          void router.invalidate();
+        },
+        resetDeviceCheckCache,
+      ),
+    );
     return () => data.subscription.unsubscribe();
   }, [router, queryClient]);
 
@@ -164,11 +170,15 @@ function RootComponent() {
   // Every 30s: sign out if the 12h window ended or another device took over this ID.
   useEffect(() => {
     const tick = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) return;
-      const { checkDeviceSession, forceSignOut } = await import("@/lib/device-session");
-      const reason = await checkDeviceSession();
-      if (reason) await forceSignOut(reason);
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!data.session) return;
+        const { checkDeviceSession, forceSignOut } = await import("@/lib/device-session");
+        const reason = await checkDeviceSession();
+        if (reason) await forceSignOut(reason);
+      } catch {
+        /* A temporary outage is retried on the next tick; route guards remain closed. */
+      }
     };
     const id = window.setInterval(tick, 30000);
     return () => window.clearInterval(id);

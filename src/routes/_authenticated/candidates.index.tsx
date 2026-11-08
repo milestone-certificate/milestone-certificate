@@ -149,6 +149,7 @@ function CandidatesPage() {
             value={fDate}
             onChange={(e) => setFDate(e.target.value)}
             title="পরীক্ষার তারিখ"
+            className="col-span-2"
           />
         </div>
       </div>
@@ -158,7 +159,7 @@ function CandidatesPage() {
       ) : list.length === 0 ? (
         <Empty>কোনো পরীক্ষার্থী পাওয়া যায়নি</Empty>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {list.map((c) => {
             const ex = byCand.get(c.id) ?? [];
             const last = ex[0];
@@ -170,7 +171,7 @@ function CandidatesPage() {
                 key={c.id}
                 to="/candidates/$id"
                 params={{ id: c.id }}
-                className={`card-surface block border-l-4 p-4 transition-all duration-300 hover:-translate-y-0.5 ${ex.some((e) => e.result === "PASS") ? "border-l-emerald-500 shadow-[0_0_14px_-4px_rgb(16_185_129/0.6)] hover:shadow-[0_0_22px_-4px_rgb(16_185_129/0.8)]" : "border-l-amber-400 shadow-[0_0_14px_-4px_rgb(251_191_36/0.55)] hover:shadow-[0_0_22px_-4px_rgb(251_191_36/0.8)]"}`}
+                className={`card-surface block min-w-0 border-l-4 p-4 transition-all duration-300 hover:-translate-y-0.5 ${ex.some((e) => e.result === "PASS") ? "border-l-emerald-500 shadow-[0_0_14px_-4px_rgb(16_185_129/0.6)] hover:shadow-[0_0_22px_-4px_rgb(16_185_129/0.8)]" : "border-l-amber-400 shadow-[0_0_14px_-4px_rgb(251_191_36/0.55)] hover:shadow-[0_0_22px_-4px_rgb(251_191_36/0.8)]"}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <CandidatePhoto path={c.photo_url} name={c.name} />
@@ -182,7 +183,7 @@ function CandidatesPage() {
                   </div>
                   {last && <ResultBadge result={last.result} date={last.result_date} />}
                 </div>
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <div className="mt-2 flex flex-wrap break-words gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span>{occName(c.occupation_id)}</span>
                   <span>{ttcName(c.ttc_id)}</span>
                   <span>{c.district}</span>

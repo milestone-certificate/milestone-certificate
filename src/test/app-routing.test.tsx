@@ -2,6 +2,8 @@ import { QueryClient } from "@tanstack/react-query";
 import { createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { describe, expect, it } from "vitest";
 
+import { normalizeAppPath } from "@/lib/roles";
+import { navigationForRoles } from "@/lib/navigation";
 import { routeTree } from "@/routeTree.gen";
 
 function createRouterAt(path: string) {
@@ -13,6 +15,23 @@ function createRouterAt(path: string) {
 }
 
 describe("App routing", () => {
+  it("registers every page linked from every role menu", () => {
+    const router = createRouterAt("/");
+    for (const roles of [
+      ["admin"],
+      ["staff"],
+      ["agent"],
+      ["management"],
+      ["service_provider"],
+      ["management", "agent"],
+    ]) {
+      for (const link of navigationForRoles(roles)) {
+        const matches = router.matchRoutes(link.to);
+        expect(normalizeAppPath(matches.at(-1)?.pathname ?? "")).toBe(link.to);
+        expect(matches).toHaveLength(link.to === "/result-check" ? 2 : 3);
+      }
+    }
+  });
   it("matches the index route", () => {
     const router = createRouterAt("/");
 

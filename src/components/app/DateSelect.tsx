@@ -48,18 +48,21 @@ export function DateSelect({ value, onChange, className = "", autoToday = true, 
   };
   const years = Array.from({ length: 8 }, (_, i) => ty! - 4 + i);
   if (!years.includes(year)) years.push(year);
-  const sel = "h-9 rounded-md border bg-background px-1.5 text-sm";
+  const sel = "h-9 min-w-0 rounded-md border bg-background px-1.5 text-sm";
+  const label = String(rest["aria-label"] ?? rest["title"] ?? "তারিখ");
   return (
     <span
-      className={`inline-flex items-center gap-1 ${className.replace(/\bw-\S+/g, "")}`}
-      aria-label={rest["aria-label"] as string | undefined}
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 ${className.replace(/\bw-\S+/g, "")}`}
+      role="group"
+      aria-label={label}
     >
       <select
         className={sel}
+        aria-label={`${label}: দিন`}
         value={day || ""}
         onChange={(e) => emit(year, month, Number(e.target.value))}
       >
-        <option value="">Date</option>
+        <option value="">দিন</option>
         {Array.from({ length: days }, (_, i) => i + 1).map((d) => (
           <option key={d} value={d}>
             {d}
@@ -68,6 +71,7 @@ export function DateSelect({ value, onChange, className = "", autoToday = true, 
       </select>
       <select
         className={sel}
+        aria-label={`${label}: মাস`}
         value={month}
         onChange={(e) => emit(year, Number(e.target.value), day || 1)}
       >
@@ -79,6 +83,7 @@ export function DateSelect({ value, onChange, className = "", autoToday = true, 
       </select>
       <select
         className={sel}
+        aria-label={`${label}: বছর`}
         value={year}
         onChange={(e) => emit(Number(e.target.value), month, day || 1)}
       >

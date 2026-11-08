@@ -190,7 +190,7 @@ function Dashboard() {
           </Button>
         ))}
         {range === "custom" && (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <DateSelect
               value={from}
               onChange={(e) => setFrom(e.target.value)}
@@ -254,7 +254,7 @@ function Dashboard() {
 
       <BoguraSummary exams={exams} ttc={ttc ?? []} occName={occName} cands={candMap} />
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <BoguraToday
           exams={exams}
           ttc={ttc ?? []}
@@ -477,11 +477,11 @@ function BoguraToday({
   return (
     <div className="card-surface p-4">
       <h3 className="mb-3 flex flex-wrap items-center justify-between gap-2 text-base font-semibold">
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <Bell className="h-4 w-4 text-primary" />{" "}
           {pick ? `${fmtDate(pick)} — বগুড়া` : "আজকের রিমাইন্ডার — বগুড়া"}
         </span>
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <DateSelect
             autoToday={false}
             aria-label="নির্দিষ্ট তারিখ"
@@ -662,11 +662,11 @@ function BoguraSummary({
   return (
     <div className="card-surface mt-5 p-4">
       <h3 className="mb-1 flex flex-wrap items-center justify-between gap-2 text-base font-semibold">
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <Building2 className="h-4 w-4 text-primary" /> বগুড়া সেন্টার — তারিখভিত্তিক পরীক্ষার
           রিপোর্ট
         </span>
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <DateSelect
             aria-label="তারিখ নির্বাচন"
             value={pick}

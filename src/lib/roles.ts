@@ -8,6 +8,7 @@ export const AGENT_PATHS = [
   "/office",
   "/about",
   "/agent-results",
+  "/result-check",
   "/svp-booking",
   "/wallet",
 ] as const;
@@ -37,15 +38,43 @@ export function homeForRoles(
 
 export const isManager = (roles: string[]) => roles.includes("admin") || roles.includes("staff");
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: "অ্যাডমিন",
+  staff: "স্টাফ",
+  agent: "এজেন্ট",
+  service_provider: "সেবা প্রদানকারী",
+  management: "রিসেপশন",
+};
+export function roleSummary(roles: string[]): string {
+  const labels = [...new Set(roles)].map((role) => ROLE_LABELS[role]).filter(Boolean);
+  return labels.length ? labels.join(" · ") : "পরীক্ষার্থী";
+}
+
+export function normalizeAppPath(path: string): string {
+  try {
+    return (
+      decodeURIComponent(path.split(/[?#]/, 1)[0])
+        .replace(/\/{2,}/g, "/")
+        .replace(/\/+$/, "") || "/"
+    );
+  } catch {
+    return "";
+  }
+}
+const inPath = (path: string, routes: readonly string[]) =>
+  routes.some((base) => path === base || path.startsWith(`${base}/`));
+
 /**
  * Check the same role/path rules used by the authenticated route guard.
  * Managers can use the common management pages; only admins can use admin-only pages.
  */
 export function canAccessPath(path: string, roles: string[]): boolean {
-  if (ADMIN_ONLY_PATHS.includes(path as (typeof ADMIN_ONLY_PATHS)[number])) {
+  path = normalizeAppPath(path);
+  if (!path) return false;
+  if (inPath(path, ADMIN_ONLY_PATHS)) {
     return roles.includes("admin");
   }
-  if (AGENT_ONLY_PATHS.includes(path as (typeof AGENT_ONLY_PATHS)[number])) {
+  if (inPath(path, AGENT_ONLY_PATHS)) {
     return roles.includes("agent");
   }
   if (isManager(roles)) return true;

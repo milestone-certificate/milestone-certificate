@@ -177,12 +177,30 @@ export const checkSubmissionSvp = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }): Promise<SvpCheck> => {
+    const roles = await context.supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId);
+    if (roles.error) return { status: "error", message: "অনুমতি যাচাই করা যায়নি" };
+    const manager = (roles.data ?? []).some((row) => row.role === "admin" || row.role === "staff");
+    const provider = (roles.data ?? []).some((row) => row.role === "service_provider");
+    const agent = (roles.data ?? []).some((row) => row.role === "agent");
+    if (!manager && !provider && !agent) return { status: "error", message: "অনুমতি নেই" };
+    if (!manager) {
+      const active = await context.supabase.rpc("is_active_account", { _user_id: context.userId });
+      if (active.error || active.data !== true) return { status: "error", message: "অনুমতি নেই" };
+    }
     const { data: sub } = await context.supabase
       .from("job_submissions")
-      .select("id, passport_no, occupation_id, exam_at, svp_result")
+      .select("id, passport_no, occupation_id, exam_at, svp_result, status, submitted_by")
       .eq("id", data.id)
       .maybeSingle();
-    if (!sub) return { status: "error", message: "অনুমতি নেই" };
+    if (
+      !sub ||
+      (!manager &&
+        (sub.status !== "approved" || (!provider && sub.submitted_by !== context.userId)))
+    )
+      return { status: "error", message: "অনুমতি নেই" };
     if (!sub.occupation_id) return { status: "error", message: "পেশা নির্বাচন করা নেই" };
     const { data: occ } = await context.supabase
       .from("occupations")

@@ -11,6 +11,8 @@ import brandLogo from "@/assets/brand-logo.jpg";
 import { navigationForRoles } from "@/lib/navigation";
 import { cancelStaleSvpBookings } from "@/lib/svp-pending-cancel";
 import { useEffect } from "react";
+import { MobileNavigation } from "@/components/app/MobileNavigation";
+import { roleSummary } from "@/lib/roles";
 
 export function AppShell({ children, roles = [] }: { children: ReactNode; roles?: string[] }) {
   useWorksRealtime();
@@ -34,7 +36,8 @@ export function AppShell({ children, roles = [] }: { children: ReactNode; roles?
     });
   }, [qc]);
   const logout = async () => {
-    await supabase.auth.signOut();
+    await qc.cancelQueries();
+    await supabase.auth.signOut({ scope: "local" });
     qc.clear();
     navigate({ to: "/auth" });
   };
@@ -59,6 +62,9 @@ export function AppShell({ children, roles = [] }: { children: ReactNode; roles?
             Milestone
             <br />
             <span className="text-xs font-medium text-muted-foreground">Certificate</span>
+            <span className="mt-1 block text-[10px] font-normal text-primary">
+              {roleSummary(roles)}
+            </span>
           </div>
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -105,21 +111,7 @@ export function AppShell({ children, roles = [] }: { children: ReactNode; roles?
         {children}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 overflow-x-auto border-t bg-card md:hidden">
-        <div className="flex min-w-max items-stretch">
-          {items.map((n) => (
-            <Link
-              key={n.to}
-              to={n.to as "/dashboard"}
-              className="flex min-w-[64px] flex-col items-center justify-center gap-0.5 px-3 py-2 text-[11px] text-muted-foreground"
-              activeProps={{ className: "text-primary font-semibold" }}
-            >
-              <n.icon className="h-5 w-5" />
-              {n.label}
-            </Link>
-          ))}
-        </div>
-      </nav>
+      <MobileNavigation roles={roles} onLogout={logout} />
     </div>
   );
 }

@@ -86,7 +86,7 @@ export function PortalAssistant() {
           onChange={(e) => setInput(e.target.value)}
           maxLength={2000}
           placeholder="আপনার প্রশ্ন লিখুন…"
-          className="h-11 flex-1 rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+          className="h-11 min-w-0 flex-1 rounded-xl border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
         <button
           type="submit"

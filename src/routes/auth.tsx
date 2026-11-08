@@ -90,12 +90,15 @@ function AuthPage() {
       const { data } = await supabase.auth.getUser();
       if (!data.user) return;
       if (await checkDeviceSession()) return;
-      const { data: roles } = await supabase
+      const { data: roles, error: roleError } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", data.user.id);
+      if (roleError) return;
       navigate({ to: homeForRoles((roles ?? []).map((r) => r.role as string)), replace: true });
-    })();
+    })().catch(() => {
+      /* Keep the login form available while verification is unavailable. */
+    });
   }, [navigate]);
 
   const eye = (
@@ -171,10 +174,11 @@ function AuthPage() {
       toast.success("সফলভাবে লগইন হয়েছে");
     }
     try {
-      const { data: roleRows } = await supabase
+      const { data: roleRows, error: roleError } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id);
+      if (roleError) throw new Error("Role verification unavailable");
       const roles = (roleRows ?? []).map((r) => r.role as string);
       await claimDeviceSession(roles.includes("admin"));
       navigate({ to: homeForRoles(roles), replace: true });

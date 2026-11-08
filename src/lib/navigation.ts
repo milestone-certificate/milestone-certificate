@@ -24,7 +24,7 @@ export type NavigationItem = {
 const commonNav: readonly NavigationItem[] = [
   { to: "/dashboard", label: "হোম", icon: Home },
   { to: "/wallet", label: "ব্যালেন্স", icon: Wallet },
-  { to: "/submissions", label: "Submitted Works", icon: ClipboardCheck, desktopOnly: true },
+  { to: "/submissions", label: "জমা দেওয়া কাজ", icon: ClipboardCheck, desktopOnly: true },
   { to: "/management", label: "রিসেপশন", icon: UserCheck, desktopOnly: true },
   { to: "/candidates", label: "পরীক্ষার্থী", icon: Users },
   { to: "/exams", label: "পরীক্ষা", icon: CalendarDays },
@@ -52,12 +52,12 @@ const adminNav: readonly NavigationItem[] = [
 const agentNav: readonly NavigationItem[] = [
   { to: "/dashboard", label: "ড্যাশবোর্ড", icon: Home },
   { to: "/wallet", label: "ব্যালেন্স", icon: Wallet },
-  { to: "/submit-job", label: "Submit Work", icon: ClipboardCheck },
+  { to: "/submit-job", label: "কাজ জমা", icon: ClipboardCheck },
   { to: "/my-works", label: "আমার কাজ", icon: Briefcase },
   { to: "/sub-agents", label: "সাব-এজেন্ট", icon: Users },
   { to: "/result-check", label: "রেজাল্ট চেক", icon: ClipboardCheck },
   { to: "/office", label: "অফিস ঠিকানা", icon: Home },
-  { to: "/about", label: "About", icon: Globe },
+  { to: "/about", label: "আমাদের সেবা", icon: Globe },
 ];
 
 const providerNav: readonly NavigationItem[] = [
@@ -66,7 +66,7 @@ const providerNav: readonly NavigationItem[] = [
 
 const managementNav: readonly NavigationItem[] = [
   { to: "/management", label: "রিসেপশন", icon: UserCheck },
-  { to: "/submissions", label: "Submitted Works", icon: ClipboardCheck },
+  { to: "/submissions", label: "জমা দেওয়া কাজ", icon: ClipboardCheck },
 ];
 
 /** Return the menu for a role set. Manager roles intentionally take precedence over agent menus. */

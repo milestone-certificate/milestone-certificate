@@ -17,9 +17,10 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { settingsQ } from "@/lib/data";
 
 const ADMIN_LINKS = [
-  { to: "/submissions", label: "Submitted Works", icon: ClipboardCheck },
+  { to: "/submissions", label: "জমা দেওয়া কাজ", icon: ClipboardCheck },
   { to: "/management", label: "রিসেপশন", icon: UserCheck },
   { to: "/candidates", label: "পরীক্ষার্থী", icon: Users },
   { to: "/exams", label: "পরীক্ষা", icon: CalendarDays },
@@ -36,7 +37,7 @@ const ADMIN_LINKS = [
   { to: "/settings", label: "সেটিংস", icon: Settings },
 ] as const;
 
-/** Admin control centre: wallet health plus a shortcut to every management system. */
+/** অ্যাডমিন নিয়ন্ত্রণ: wallet health plus a shortcut to every management system. */
 export function AdminSystemOverview() {
   const walletsQuery = useQuery({
     queryKey: ["admin-wallet-accounts"],
@@ -71,20 +72,11 @@ export function AdminSystemOverview() {
   const [cbtFee, setCbtFee] = useState("50");
   const [savingFee, setSavingFee] = useState(false);
 
-  const settingsQuery = useQuery({
-    queryKey: ["settings"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("settings").select("key, value");
-      if (error) throw error;
-      return data ?? [];
-    },
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
+  const settingsQuery = useQuery(settingsQ);
 
   useEffect(() => {
-    const row = settingsQuery.data?.find((entry) => entry.key === "cbt_result_fee");
-    if (row?.value != null) setCbtFee(String(row.value));
+    const value = settingsQuery.data?.cbt_result_fee;
+    if (value != null) setCbtFee(value);
   }, [settingsQuery.data]);
 
   const saveCbtFee = async () => {
@@ -120,16 +112,16 @@ export function AdminSystemOverview() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            Admin control centre
+            অ্যাডমিন নিয়ন্ত্রণ
           </p>
-          <h2 className="text-lg font-bold">সব সিস্টেম হ্যান্ডেল করুন</h2>
+          <h2 className="text-lg font-bold">সিস্টেমের সারসংক্ষেপ</h2>
         </div>
         {loading && <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-2xl border bg-card p-4">
-          <p className="text-xs text-muted-foreground">Wallet accounts</p>
+          <p className="text-xs text-muted-foreground">ওয়ালেট অ্যাকাউন্ট</p>
           <p className="mt-1 text-2xl font-bold">{wallets.length}</p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
@@ -139,11 +131,11 @@ export function AdminSystemOverview() {
           </p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
-          <p className="text-xs text-muted-foreground">Pending deposit</p>
+          <p className="text-xs text-muted-foreground">অপেক্ষমান ডিপোজিট</p>
           <p className="mt-1 text-2xl font-bold text-amber-400">{pending.length}</p>
         </div>
         <div className="rounded-2xl border bg-card p-4">
-          <p className="text-xs text-muted-foreground">Pending amount</p>
+          <p className="text-xs text-muted-foreground">অপেক্ষমান টাকা</p>
           <p className="mt-1 text-2xl font-bold text-amber-400">
             ৳{pendingAmount.toLocaleString("en-BD", { maximumFractionDigits: 2 })}
           </p>
@@ -168,7 +160,7 @@ export function AdminSystemOverview() {
             disabled={savingFee}
           >
             {savingFee ? <LoaderCircle className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-            Save fee
+            ফি সংরক্ষণ
           </Button>
         </div>
         <p className="mt-1 text-[11px] text-muted-foreground">
@@ -176,15 +168,15 @@ export function AdminSystemOverview() {
         </p>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
         {ADMIN_LINKS.map((entry) => (
           <Link
             key={entry.to}
             to={entry.to as "/dashboard"}
-            className="flex items-center gap-2 rounded-xl border bg-background/40 p-3 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-muted/40"
+            className="flex min-w-0 items-center gap-2 rounded-xl border bg-background/40 p-3 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-muted/40"
           >
-            <entry.icon className="h-4 w-4 text-primary" />
-            {entry.label}
+            <entry.icon className="h-4 w-4 shrink-0 text-primary" />
+            <span className="min-w-0 break-words">{entry.label}</span>
           </Link>
         ))}
       </div>

@@ -54,7 +54,7 @@ export function AgentDashboard() {
   const { data: allWorks = [] } = useQuery(worksQ);
   const { data: me } = useQuery(myAccountQ);
   // Sub-agent works are reviewed on /sub-agents; dashboard counts only this ID's own works.
-  const works = me ? allWorks.filter((w) => w.submitted_by === me.user_id) : allWorks;
+  const works = me ? allWorks.filter((w) => w.submitted_by === me.user_id) : [];
   const occ = lookup(useQuery(occQ).data);
   const [day, setDay] = useState<0 | 1 | 2>(0);
   const count = (s: string) => works.filter((w) => w.status === s).length;

@@ -26,9 +26,11 @@ export const Route = createFileRoute("/_authenticated")({
     if (roles.length === 0) throw redirect({ to: "/portal" });
     if (!canAccessPath(location.pathname, roles)) throw redirect({ to: homeForRoles(roles) });
     if (!isManager(roles)) {
+      if (activeRes.error || activeRes.data === null)
+        throw new Error("অ্যাকাউন্ট যাচাই করা যাচ্ছে না। আবার চেষ্টা করুন।");
       const active = activeRes.data;
       if (active === false) {
-        await supabase.auth.signOut();
+        await forceSignOut("অ্যাকাউন্ট বন্ধ করা আছে। অ্যাডমিনের সঙ্গে যোগাযোগ করুন।");
         throw redirect({ to: "/auth" });
       }
     }
@@ -38,9 +40,9 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function Layout() {
-  const { roles } = Route.useRouteContext();
+  const { roles, user } = Route.useRouteContext();
   return (
-    <AppShell roles={roles}>
+    <AppShell key={user.id} roles={roles}>
       <Outlet />
     </AppShell>
   );

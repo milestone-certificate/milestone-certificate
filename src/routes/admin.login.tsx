@@ -90,7 +90,7 @@ function AdminLogin() {
       .eq("user_id", data.user.id);
     const roleNames = (roles ?? []).map((row) => row.role as string);
     if (rolesError || !isManager(roleNames)) {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
       setBusy(false);
       toast.error(
         rolesError
@@ -100,9 +100,15 @@ function AdminLogin() {
       return;
     }
     queryClient.clear();
-    await claimDeviceSession(roleNames.includes("admin"));
-    await router.invalidate();
-    navigate({ to: "/dashboard", replace: true });
+    try {
+      await claimDeviceSession(roleNames.includes("admin"));
+      await router.invalidate();
+      navigate({ to: "/dashboard", replace: true });
+    } catch {
+      toast.error("সেশন তৈরি করা যায়নি। আবার চেষ্টা করুন।");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const forgot = async () => {
