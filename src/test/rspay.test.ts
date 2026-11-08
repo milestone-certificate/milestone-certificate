@@ -9,6 +9,7 @@ import {
   hashCapability,
   processRspayCallback,
   safeCheckoutUrl,
+  rspayGatewayAvailability,
   verifyRspayPayment,
 } from "@/lib/rspay.server";
 import { paymentAmount, rspayEventSchema } from "@/lib/rspay";
@@ -30,9 +31,21 @@ beforeEach(() => {
   vi.stubEnv("RSPAY_SITE_URL", "https://portal.example");
   vi.stubEnv("RSPAY_API_KEY", "unit-test-key");
   vi.stubEnv("RSPAY_STATUS_URL_TEMPLATE", "");
+  vi.stubEnv("RSPAY_AUTO_DEPOSIT_ENABLED", "true");
   vi.stubGlobal("fetch", vi.fn());
   db.rpc.mockReset();
   db.from.mockReset();
+  db.from.mockReturnValue({
+    select: () => ({
+      eq: () => ({
+        maybeSingle: async () => ({
+          data: { enabled: true, bkash: true, nagad: true, rocket: true, upay: true },
+          error: null,
+        }),
+      }),
+      limit: async () => ({ error: null }),
+    }),
+  });
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -57,6 +70,56 @@ describe("payment input", () => {
 });
 
 describe("create payment", () => {
+  it.each([
+    { enabled: false, bkash: true, nagad: true, rocket: true, upay: true },
+    { enabled: true, bkash: false, nagad: true, rocket: true, upay: true },
+    null,
+  ])(
+    "rejects a disabled gateway/method or missing configuration before creating an order",
+    async (controls) => {
+      db.from.mockReturnValue({
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: controls, error: null }) }),
+        }),
+      });
+      const result = await createRspayDeposit("user-id", "test@example.com", {
+        amount: 500,
+        method: "bkash",
+        requestId: id,
+      });
+      expect(result.ok).toBe(false);
+      expect(db.rpc).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps the deployment safety switch authoritative even if admin controls allow payment", async () => {
+    vi.stubEnv("RSPAY_AUTO_DEPOSIT_ENABLED", "false");
+    expect(
+      (
+        await createRspayDeposit("user-id", "test@example.com", {
+          amount: 500,
+          method: "bkash",
+          requestId: id,
+        })
+      ).ok,
+    ).toBe(false);
+    expect(db.rpc).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("returns only enabled methods to the deposit page", async () => {
+    db.from.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { enabled: true, bkash: false, nagad: true, rocket: false, upay: true },
+            error: null,
+          }),
+        }),
+        limit: async () => ({ error: null }),
+      }),
+    });
+    expect(await rspayGatewayAvailability()).toEqual({ enabled: true, methods: ["nagad", "upay"] });
+  });
   it("sends the documented contract with private callback capabilities and returns only a safe URL", async () => {
     db.rpc
       .mockResolvedValueOnce({ data: { id, created: true, status: "CREATING" }, error: null })

@@ -1,6 +1,23 @@
 import { z } from "zod";
 
 export const rspayMethods = ["bkash", "nagad", "rocket", "upay"] as const;
+export type RspayMethod = (typeof rspayMethods)[number];
+export const rspayMethodNames = {
+  bkash: { name: "বিকাশ", brand: "bKash" },
+  nagad: { name: "নগদ", brand: "Nagad" },
+  rocket: { name: "রকেট", brand: "Rocket" },
+  upay: { name: "উপায়", brand: "Upay" },
+};
+export const rspayControlsSchema = z.object({
+  enabled: z.boolean(),
+  bkash: z.boolean(),
+  nagad: z.boolean(),
+  rocket: z.boolean(),
+  upay: z.boolean(),
+});
+export type RspayControls = z.infer<typeof rspayControlsSchema>;
+export const rspayControlName = z.enum(["enabled", ...rspayMethods]);
+export type RspayControlName = z.infer<typeof rspayControlName>;
 export const paymentAmount = z
   .number()
   .finite()

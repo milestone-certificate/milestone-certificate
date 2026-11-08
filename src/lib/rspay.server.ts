@@ -2,9 +2,50 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { readBoundedJson } from "@/lib/bounded-json";
-import { rspayEventSchema, type RspayEvent } from "@/lib/rspay";
+import { rspayControlsSchema, rspayEventSchema, rspayMethods, type RspayEvent } from "@/lib/rspay";
 
 export const hashCapability = (value: string) => createHash("sha256").update(value).digest("hex");
+
+export async function readRspayGatewayControls() {
+  const { data, error } = await supabaseAdmin
+    .from("rspay_gateway_settings")
+    .select("enabled,bkash,nagad,rocket,upay")
+    .eq("id", 1)
+    .maybeSingle();
+  const parsed = rspayControlsSchema.safeParse(data);
+  return !error && parsed.success ? parsed.data : null;
+}
+
+export async function rspayRuntimeState() {
+  const serverEnabled = process.env["RSPAY_AUTO_DEPOSIT_ENABLED"] === "true";
+  let configured = false;
+  let storageReady = false;
+  try {
+    rspayConfig();
+    configured = true;
+  } catch {
+    /* Server settings are private. */
+  }
+  try {
+    const { error } = await supabaseAdmin
+      .from("wallet_rspay_orders")
+      .select("deposit_id", { head: true })
+      .limit(1);
+    storageReady = !error;
+  } catch {
+    /* Report readiness only, never raw credential errors. */
+  }
+  return { serverEnabled, configured, storageReady };
+}
+
+export async function rspayGatewayAvailability() {
+  const controls = await readRspayGatewayControls();
+  const methods = controls ? rspayMethods.filter((method) => controls[method]) : [];
+  if (!controls?.enabled || !methods.length || process.env["RSPAY_AUTO_DEPOSIT_ENABLED"] !== "true")
+    return { enabled: false, methods };
+  const runtime = await rspayRuntimeState();
+  return { enabled: runtime.serverEnabled && runtime.configured && runtime.storageReady, methods };
+}
 
 export function rspayConfig() {
   const api = new URL(process.env["RSPAY_API_BASE_URL"] || "https://api.rspay.org/api");
@@ -134,6 +175,16 @@ export async function createRspayDeposit(
   identity: string,
   input: { requestId: string; amount: number; method: string },
 ) {
+  // Re-read controls for every request. A stale browser or a crafted POST
+  // cannot create a checkout after the administrator disables its method.
+  if (process.env["RSPAY_AUTO_DEPOSIT_ENABLED"] !== "true")
+    return { ok: false as const, message: "পেমেন্ট সেবা এখন চালু নেই।" };
+  const controls = await readRspayGatewayControls();
+  if (
+    !controls?.enabled ||
+    !rspayMethods.some((method) => method === input.method && controls[method])
+  )
+    return { ok: false as const, message: "এই পেমেন্ট মাধ্যম এখন বন্ধ আছে।" };
   const config = rspayConfig();
   const token = randomBytes(32).toString("hex");
   const { data, error } = await supabaseAdmin.rpc("wallet_rspay_begin", {

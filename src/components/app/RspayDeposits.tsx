@@ -12,22 +12,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { rspayDepositsQ, walletPaymentProfilesQ } from "@/lib/data";
-import { paymentAmount, paymentStatusLabel, rspayMethods } from "@/lib/rspay";
+import {
+  paymentAmount,
+  paymentStatusLabel,
+  rspayMethods,
+  rspayMethodNames as METHODS,
+  type RspayMethod,
+} from "@/lib/rspay";
 import { checkRspayDeposit, getRspayAvailability, startRspayDeposit } from "@/lib/rspay.functions";
 
-const METHODS = {
-  bkash: { name: "বিকাশ", brand: "bKash" },
-  nagad: { name: "নগদ", brand: "Nagad" },
-  rocket: { name: "রকেট", brand: "Rocket" },
-  upay: { name: "উপায়", brand: "Upay" },
-};
 const QUICK_AMOUNTS = [500, 1000, 2000, 3000, 5000];
 const formatAmount = (value: number) => value.toLocaleString("en-BD", { maximumFractionDigits: 2 });
 
 export function RspayDepositForm({ userId }: { userId: string | null }) {
   const formId = useId();
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState<(typeof rspayMethods)[number]>("bkash");
+  const [method, setMethod] = useState<RspayMethod | null>("bkash");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const intent = useRef<{ key: string; fingerprint: string } | null>(null);
@@ -36,15 +36,28 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
     queryKey: ["rspay-availability", userId],
     enabled: !!userId,
     queryFn: () => getRspayAvailability(),
-    staleTime: 60_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
     retry: false,
   });
+  const enabledMethods = availability.data?.methods ?? [];
+  useEffect(() => {
+    const methods = availability.data?.methods ?? [];
+    if (!method || !methods.includes(method)) setMethod(methods[0] ?? null);
+  }, [availability.data?.methods, method]);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("payment");
     if (id && /^[a-f0-9-]{36}$/i.test(id)) setPaymentId(id);
   }, []);
   const start = async () => {
-    if (busy || !userId || availability.data?.enabled !== true) return;
+    if (
+      busy ||
+      !userId ||
+      !method ||
+      availability.data?.enabled !== true ||
+      !enabledMethods.includes(method)
+    )
+      return;
     const value = paymentAmount.safeParse(Number(amount));
     if (!value.success) {
       setMessage("সঠিক টাকার পরিমাণ লিখুন (সর্বোচ্চ ১০ লক্ষ টাকা)।");
@@ -73,7 +86,7 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
       setBusy(false);
     }
   };
-  const selected = METHODS[method];
+  const selected = method ? METHODS[method] : null;
   const parsedAmount = paymentAmount.safeParse(Number(amount));
   if (!userId) return null;
   return (
@@ -122,13 +135,19 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
                     type="radio"
                     name={`${formId}-method`}
                     value={m}
+                    disabled={!enabledMethods.includes(m)}
                     checked={method === m}
                     onChange={() => {
                       setMethod(m);
                       setMessage("");
                     }}
                   />
-                  <span className="relative flex min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-background/30 px-2 py-4 transition-colors hover:border-primary/50 peer-checked:border-primary peer-checked:bg-primary/8 peer-checked:ring-1 peer-checked:ring-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-primary peer-disabled:cursor-wait sm:min-h-36">
+                  <span className="relative flex min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-background/30 px-2 py-4 transition-colors hover:border-primary/50 peer-checked:border-primary peer-checked:bg-primary/8 peer-checked:ring-1 peer-checked:ring-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-primary peer-disabled:cursor-not-allowed peer-disabled:opacity-50 sm:min-h-36">
+                    {availability.data && !enabledMethods.includes(m) && (
+                      <span className="absolute left-2 top-2 text-[10px] text-muted-foreground">
+                        বন্ধ
+                      </span>
+                    )}
                     {method === m && (
                       <span
                         className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground"
@@ -236,7 +255,7 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
           )}
           <Button
             type="submit"
-            disabled={busy || availability.data?.enabled !== true}
+            disabled={busy || availability.data?.enabled !== true || !method}
             className="h-13 w-full rounded-2xl text-sm font-bold shadow-lg shadow-primary/10 sm:text-base"
           >
             {busy ? (
@@ -244,7 +263,11 @@ export function RspayDepositForm({ userId }: { userId: string | null }) {
             ) : (
               <LockKeyhole className="size-4" />
             )}
-            {busy ? "পেমেন্ট তৈরি হচ্ছে…" : `${selected.brand} দিয়ে পেমেন্ট করুন`}
+            {busy
+              ? "পেমেন্ট তৈরি হচ্ছে…"
+              : selected
+                ? `${selected.brand} দিয়ে পেমেন্ট করুন`
+                : "পেমেন্ট করুন"}
             {!busy && <ChevronRight className="size-4" />}
           </Button>
           <p className="flex items-center justify-center gap-1.5 px-2 text-center text-[11px] text-muted-foreground">

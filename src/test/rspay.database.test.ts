@@ -14,6 +14,7 @@ describe.runIf(run)("RSPay atomic wallet settlement (real PostgreSQL)", () => {
   const sql = postgres(url || "postgres://localhost/rspay_test", { max: 12, onnotice: () => {} });
   const owner = "ff000000-0000-4000-8000-000000000001";
   const staff = "ff000000-0000-4000-8000-000000000002";
+  const admin = "ff000000-0000-4000-8000-000000000003";
   const hash = "a".repeat(64);
   beforeAll(async () => {
     const setup = postgres(url || "postgres://localhost/rspay_test", {
@@ -27,14 +28,16 @@ describe.runIf(run)("RSPay atomic wallet settlement (real PostgreSQL)", () => {
       CREATE TABLE IF NOT EXISTS auth.users(id uuid PRIMARY KEY);
       CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
       CREATE OR REPLACE FUNCTION public.is_staff(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT $1 = '${staff}'::uuid $$;
+      CREATE OR REPLACE FUNCTION public.has_role(uuid,text) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT $1 = '${admin}'::uuid AND $2 = 'admin' $$;
       GRANT USAGE ON SCHEMA public,auth TO anon,authenticated,service_role;
       GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
-      INSERT INTO auth.users VALUES ('${owner}'),('${staff}') ON CONFLICT DO NOTHING;`);
+      INSERT INTO auth.users VALUES ('${owner}'),('${staff}'),('${admin}') ON CONFLICT DO NOTHING;`);
     for (const file of [
       "20261026120000_create_wallet_system.sql",
       "20261026120100_create_wallet_functions.sql",
       "20261026120300_wallet_request_deposit.sql",
       "20261108140000_rspay_wallet.sql",
+      "20261108160000_rspay_gateway_controls.sql",
     ]) {
       await setup.unsafe(
         await readFile(new URL(`../../supabase/migrations/${file}`, import.meta.url), "utf8"),
@@ -49,13 +52,16 @@ describe.runIf(run)("RSPay atomic wallet settlement (real PostgreSQL)", () => {
     await sql.unsafe(
       "TRUNCATE public.wallet_rspay_orders, public.wallet_deposits, public.wallet_transactions, public.wallet_accounts CASCADE",
     );
+    await sql.unsafe(
+      "UPDATE public.rspay_gateway_settings SET enabled=true,bkash=true,nagad=true,rocket=true,upay=true; TRUNCATE public.rspay_gateway_audit",
+    );
   });
   afterAll(async () => {
     await sql.end();
   });
-  async function begin(request = randomUUID(), amount = 500) {
+  async function begin(request = randomUUID(), amount = 500, method = "bkash") {
     const [r] =
-      await sql`SELECT public.wallet_rspay_begin(${owner},${request},${amount},'bkash','test@example.com',${hash}) AS result`;
+      await sql`SELECT public.wallet_rspay_begin(${owner},${request},${amount},${method},'test@example.com',${hash}) AS result`;
     return r.result as { id: string; created: boolean };
   }
   async function order(code = randomUUID()) {
@@ -84,6 +90,61 @@ describe.runIf(run)("RSPay atomic wallet settlement (real PostgreSQL)", () => {
       await sql`SELECT (SELECT coalesce(sum(balance),0) FROM wallet_accounts)::float8 AS balance, (SELECT count(*) FROM wallet_transactions WHERE type='deposit')::int AS credits`;
     return r;
   }
+  const control = (name: string, enabled: boolean, actor = admin) =>
+    sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE authenticated");
+      await tx`SELECT set_config('request.jwt.claim.sub',${actor},true)`;
+      return tx`SELECT set_rspay_gateway_control(${name},${enabled}) AS result`;
+    });
+  it("allows only administrators to change gateway controls and read their settings", async () => {
+    for (const actor of [owner, staff]) {
+      await expect(control("enabled", false, actor)).rejects.toThrow(/Admin access required/);
+      await sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE authenticated");
+        await tx`SELECT set_config('request.jwt.claim.sub',${actor},true)`;
+        expect(await tx`SELECT * FROM rspay_gateway_settings`).toHaveLength(0);
+        expect(await tx`SELECT * FROM rspay_gateway_audit`).toHaveLength(0);
+      });
+    }
+    expect((await sql`SELECT count(*)::int AS count FROM rspay_gateway_audit`)[0].count).toBe(0);
+  });
+  it("changes one method atomically and writes an audit record only for a real change", async () => {
+    await Promise.all([control("bkash", false), control("nagad", false)]);
+    await control("bkash", false);
+    const [s] = await sql`SELECT bkash,nagad,rocket,upay FROM rspay_gateway_settings`;
+    expect(s).toEqual({ bkash: false, nagad: false, rocket: true, upay: true });
+    const rows = await sql`SELECT control,old_value,new_value,changed_by FROM rspay_gateway_audit`;
+    expect(rows).toHaveLength(2);
+    expect(
+      rows.every((r) => r.old_value === true && r.new_value === false && r.changed_by === admin),
+    ).toBe(true);
+  });
+  it("rejects direct table writes even from an admin so normal changes retain an audit trail", async () => {
+    await expect(
+      sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE authenticated");
+        await tx`SELECT set_config('request.jwt.claim.sub',${admin},true)`;
+        await tx`UPDATE rspay_gateway_settings SET enabled=false WHERE id=1`;
+      }),
+    ).rejects.toThrow(/permission denied/);
+  });
+  it("blocks new orders when the master switch or selected method is off", async () => {
+    await control("bkash", false);
+    await expect(begin()).rejects.toThrow(/disabled/);
+    expect((await begin(randomUUID(), 500, "nagad")).created).toBe(true);
+    await control("enabled", false);
+    await expect(begin(randomUUID(), 500, "nagad")).rejects.toThrow(/disabled/);
+    expect((await sql`SELECT count(*)::int AS count FROM wallet_deposits`)[0].count).toBe(1);
+    expect(await totals()).toEqual({ balance: 0, credits: 0 });
+  });
+  it("settles an existing paid order once even after gateway and method are disabled", async () => {
+    const d = await order();
+    await control("enabled", false);
+    await control("bkash", false);
+    expect((await send(d.id, d.event)).ok).toBe(true);
+    expect((await send(d.id, d.event)).ok).toBe(true);
+    expect(await totals()).toEqual({ balance: 500, credits: 1 });
+  });
   it("credits once under simultaneous duplicate callbacks and ignores later failure/pending", async () => {
     const d = await order();
     const results = await Promise.all(Array.from({ length: 12 }, () => send(d.id, d.event)));

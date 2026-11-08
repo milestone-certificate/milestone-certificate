@@ -1,10 +1,26 @@
 # RSPay automatic wallet deposits
 
 Apply [`20261108140000_rspay_wallet.sql`](../migrations/20261108140000_rspay_wallet.sql)
-in the Supabase SQL Editor after the existing wallet migrations. It adds private
+and then [`20261108160000_rspay_gateway_controls.sql`](../migrations/20261108160000_rspay_gateway_controls.sql)
+in the Supabase SQL Editor after the existing wallet migrations. They add private
 gateway orders, deposit metadata, RLS restrictions and atomic settlement RPCs.
 Existing manual deposits and wallet balances are preserved. No credentials are
 included in the migration.
+
+Administrators manage the gateway at **Dashboard → RSPay Gateway**. The master
+switch starts **off**. bKash, Nagad, Rocket and Upay can each be switched on/off
+independently; method preferences remain saved while the master is off. Changes
+are atomic, admin-only and logged with the previous value, new value, actor and
+time. Staff/agents cannot read these admin settings or change them directly.
+
+The existing `RSPAY_AUTO_DEPOSIT_ENABLED` deployment flag remains a separate
+activation lock. The dashboard cannot bypass it, missing credentials, or missing
+wallet tables; the master switch stays disabled until the server is ready.
+This change does not enable the deployment flag or send a payment request.
+Disabled methods are disabled on the deposit page within its 15-second refresh
+cycle and are rejected immediately by the server and order-creation RPC, even if
+a caller submits a stale or crafted request. Switches affect **new checkouts**;
+existing payment callbacks still settle exactly once after switching off.
 
 Set these **server-only** deployment variables (see `.env.example`):
 

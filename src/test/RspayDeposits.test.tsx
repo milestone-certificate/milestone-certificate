@@ -38,7 +38,10 @@ function mount(element: React.ReactNode) {
 beforeEach(() => {
   window.history.replaceState({}, "", "/wallet");
   vi.clearAllMocks();
-  api.availability.mockResolvedValue({ enabled: true });
+  api.availability.mockResolvedValue({
+    enabled: true,
+    methods: ["bkash", "nagad", "rocket", "upay"],
+  });
   api.start.mockResolvedValue({ ok: false, message: "কিছুক্ষণ পরে চেষ্টা করুন।" });
   api.check.mockResolvedValue({
     id,
@@ -114,13 +117,32 @@ it("reads the real return status and refreshes wallet queries only when the data
 });
 
 it("shows the deposit design but prevents checkout while online payments are disabled", async () => {
-  api.availability.mockResolvedValue({ enabled: false });
+  api.availability.mockResolvedValue({
+    enabled: false,
+    methods: ["bkash", "nagad", "rocket", "upay"],
+  });
   mount(<RspayDepositForm userId="owner" />);
   await waitFor(() => expect(api.availability).toHaveBeenCalled());
   expect(screen.getByRole("button", { name: /পেমেন্ট করুন/ })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "500" }));
   fireEvent.submit(screen.getByRole("button", { name: /পেমেন্ট করুন/ }).closest("form")!);
   expect(api.start).not.toHaveBeenCalled();
+});
+
+it("disables blocked methods and replaces a selection when the admin changes availability", async () => {
+  const { client } = mount(<RspayDepositForm userId="owner" />);
+  await waitFor(() => expect(screen.getByRole("radio", { name: /BKASH/ })).toBeChecked());
+  api.availability.mockResolvedValue({ enabled: true, methods: ["rocket"] });
+  await client.invalidateQueries({ queryKey: ["rspay-availability"] });
+  await waitFor(() => expect(screen.getByRole("radio", { name: /ROCKET/ })).toBeChecked());
+  expect(screen.getByRole("radio", { name: /BKASH/ })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "500" }));
+  fireEvent.click(screen.getByRole("button", { name: /Rocket দিয়ে পেমেন্ট করুন/ }));
+  await waitFor(() =>
+    expect(api.start).toHaveBeenCalledWith({
+      data: expect.objectContaining({ method: "rocket", amount: 500 }),
+    }),
+  );
 });
 
 it("shows customer, amount, method, code, transaction and status in the admin/owner record", async () => {

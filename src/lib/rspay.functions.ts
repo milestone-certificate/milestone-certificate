@@ -1,24 +1,56 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { paymentAmount, rspayMethods } from "@/lib/rspay";
+import { paymentAmount, rspayControlName, rspayMethods } from "@/lib/rspay";
 
 export const getRspayAvailability = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
     try {
-      if (process.env["RSPAY_AUTO_DEPOSIT_ENABLED"] !== "true") return { enabled: false };
-      const { rspayConfig } = await import("@/lib/rspay.server");
-      rspayConfig();
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      const { error } = await supabaseAdmin
-        .from("wallet_rspay_orders")
-        .select("deposit_id", { head: true })
-        .limit(1);
-      return { enabled: !error };
+      const { rspayGatewayAvailability } = await import("@/lib/rspay.server");
+      return await rspayGatewayAvailability();
     } catch {
-      return { enabled: false };
+      return { enabled: false, methods: [] };
     }
+  });
+
+export const getAdminRspayRuntime = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const role = await context.supabase.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
+    if (role.error || !role.data) throw new Error("Admin access required");
+    const { rspayRuntimeState } = await import("@/lib/rspay.server");
+    return rspayRuntimeState();
+  });
+
+export const setAdminRspayControl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ control: rspayControlName, enabled: z.boolean() }).strict().parse(input),
+  )
+  .handler(async ({ context, data }) => {
+    const role = await context.supabase.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
+    if (role.error || !role.data)
+      return { ok: false, message: "শুধু admin এই সেটিংস বদলাতে পারবেন।" };
+    if (data.control === "enabled" && data.enabled) {
+      const { rspayRuntimeState } = await import("@/lib/rspay.server");
+      const runtime = await rspayRuntimeState();
+      if (!runtime.serverEnabled || !runtime.configured || !runtime.storageReady)
+        return { ok: false, message: "Server setup সম্পূর্ণ না হওয়ায় gateway চালু করা যাচ্ছে না।" };
+    }
+    const { error } = await context.supabase.rpc("set_rspay_gateway_control", {
+      _control: data.control,
+      _enabled: data.enabled,
+    });
+    return error
+      ? { ok: false, message: "Gateway settings সংরক্ষণ হয়নি। আবার চেষ্টা করুন।" }
+      : { ok: true, message: "Gateway settings সংরক্ষিত হয়েছে।" };
   });
 
 export const startRspayDeposit = createServerFn({ method: "POST" })

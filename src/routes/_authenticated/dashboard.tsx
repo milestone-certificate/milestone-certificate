@@ -5,6 +5,7 @@ import { AgentDashboard } from "@/components/app/AgentDashboard";
 import { AdminActivity } from "@/components/app/AdminActivity";
 import { RspayDepositRecords } from "@/components/app/RspayDeposits";
 import { AdminSystemOverview } from "@/components/app/AdminSystemOverview";
+import { AdminRspayGateway } from "@/components/app/AdminRspayGateway";
 import { AgentWhatsAppReminder } from "@/components/app/AgentWhatsAppReminder";
 import { isManager } from "@/lib/roles";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -85,6 +86,7 @@ function DashboardSwitch() {
 }
 
 function Dashboard() {
+  const { roles, user } = Route.useRouteContext();
   const { data: cands = [] } = useQuery(candidatesQ);
   const { data: exams = [] } = useQuery(examsQ);
   const { data: occ } = useQuery(occQ);
@@ -161,10 +163,11 @@ function Dashboard() {
       <div className="mb-4">
         <ReceiveAnalyticsButton />
       </div>
-      {Route.useRouteContext().roles.includes("admin") && <AdminActivity />}
-      {Route.useRouteContext().roles.includes("admin") && <AdminSystemOverview />}
-      <RspayDepositRecords userId={Route.useRouteContext().user.id} compact />
-      {Route.useRouteContext().roles.includes("admin") && <AgentWhatsAppReminder />}
+      {roles.includes("admin") && <AdminActivity />}
+      {roles.includes("admin") && <AdminSystemOverview />}
+      {roles.includes("admin") && <AdminRspayGateway userId={user.id} />}
+      <RspayDepositRecords userId={user.id} compact />
+      {roles.includes("admin") && <AgentWhatsAppReminder />}
 
       <div className="mb-5 grid grid-cols-3 gap-2 sm:grid-cols-6">
         <QuickBtn icon={<Plus />} label="নতুন পরীক্ষার্থী" onClick={() => setCandOpen(true)} />

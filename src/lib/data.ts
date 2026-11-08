@@ -10,6 +10,35 @@ export type Occupation = Database["public"]["Tables"]["occupations"]["Row"];
 export type Reminder = Database["public"]["Tables"]["reminders"]["Row"];
 export type ExamResult = Database["public"]["Enums"]["exam_result"];
 
+export const rspayGatewaySettingsQ = (userId: string) =>
+  queryOptions({
+    queryKey: ["rspay-admin-settings", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rspay_gateway_settings")
+        .select("*")
+        .eq("id", 1)
+        .single();
+      if (error) throw new Error("Gateway settings unavailable");
+      return data;
+    },
+    retry: false,
+  });
+export const rspayGatewayAuditQ = (userId: string) =>
+  queryOptions({
+    queryKey: ["rspay-admin-audit", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rspay_gateway_audit")
+        .select("id,control,old_value,new_value,created_at")
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (error) throw new Error("Gateway history unavailable");
+      return data;
+    },
+    retry: false,
+  });
+
 export const rspayDepositsQ = (userId: string, compact: boolean, page = 0) =>
   queryOptions({
     queryKey: ["rspay-records", userId, compact, page],

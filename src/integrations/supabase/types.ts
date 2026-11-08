@@ -1018,6 +1018,64 @@ export type Database = {
           },
         ];
       };
+      rspay_gateway_settings: {
+        Row: {
+          id: number;
+          enabled: boolean;
+          bkash: boolean;
+          nagad: boolean;
+          rocket: boolean;
+          upay: boolean;
+          updated_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: number;
+          enabled?: boolean;
+          bkash?: boolean;
+          nagad?: boolean;
+          rocket?: boolean;
+          upay?: boolean;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          enabled?: boolean;
+          bkash?: boolean;
+          nagad?: boolean;
+          rocket?: boolean;
+          upay?: boolean;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      rspay_gateway_audit: {
+        Row: {
+          id: string;
+          control: string;
+          old_value: boolean;
+          new_value: boolean;
+          changed_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          control: string;
+          old_value: boolean;
+          new_value: boolean;
+          changed_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          control?: string;
+          old_value?: boolean;
+          new_value?: boolean;
+          changed_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       wallet_accounts: {
         Row: {
           balance: number;
@@ -1179,6 +1237,7 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      set_rspay_gateway_control: { Args: { _control: string; _enabled: boolean }; Returns: Json };
       wallet_rspay_begin: {
         Args: {
           _user_id: string;
