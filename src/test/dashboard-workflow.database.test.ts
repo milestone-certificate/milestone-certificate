@@ -13,7 +13,7 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
     onnotice: () => {},
   });
   const ids = Object.fromEntries(
-    ["agent", "child", "other", "staff", "management", "service_provider", "customer"].map(
+    ["agent", "child", "other", "staff", "management", "service_provider", "customer", "admin"].map(
       (role, i) => [role, `ff000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`],
     ),
   );
@@ -35,6 +35,7 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
       "manual/apply_core_tables.sql",
       "manual/apply_core_policies.sql",
       "migrations/20261108180000_dashboard_workflow_repair.sql",
+      "migrations/20261108190000_admin_device_slots.sql",
     ])
       await sql.unsafe(await readFile(new URL(`../../supabase/${f}`, import.meta.url), "utf8"));
     for (const [role, id] of Object.entries(ids)) {
@@ -208,6 +209,22 @@ describe.runIf(run)("Dashboard workflow against disposable PostgreSQL", () => {
     expect(r.result).toBe("PASS");
     expect((await sql`SELECT check_applicant_result('A1234567','') AS r`)[0].r.status).toBe(
       "not_found",
+    );
+  });
+  it("keeps only the latest two admin devices and one device for other roles", async () => {
+    for (const role of ["admin", "agent"]) {
+      for (const key of ["a", "b", "c"])
+        await asUser(role, (tx) => tx`SELECT claim_device_session(${key.repeat(64)})`);
+      for (const key of ["a", "b", "c"]) {
+        const [row] = await asUser(
+          role,
+          (tx) => tx`SELECT is_current_device_session(${key.repeat(64)}) AS valid`,
+        );
+        expect(row.valid).toBe(key === "c" || (role === "admin" && key === "b"));
+      }
+    }
+    await expect(asUser("agent", (tx) => tx`SELECT claim_device_session('short')`)).rejects.toThrow(
+      /Invalid device/,
     );
   });
 });
