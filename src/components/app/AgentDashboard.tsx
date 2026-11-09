@@ -31,7 +31,6 @@ import { CandidatePhoto } from "@/components/app/CandidatePhoto";
 import { agentNoticeQ, UnpaidNotice, useMyUnpaid } from "@/components/app/AgentNotice";
 import { supabase } from "@/integrations/supabase/client";
 import { compressImage } from "@/lib/compress-image";
-import { OfficeAddress } from "@/components/app/OfficeAddress";
 import { AboutServices } from "@/components/app/AboutServices";
 import { AgentToAdminReminder } from "@/components/app/AgentToAdminReminder";
 import { Button } from "@/components/ui/button";
@@ -323,7 +322,7 @@ export function AgentDashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <Link
           to="/agent-results"
           className="flex items-center justify-center gap-1.5 rounded-xl border border-primary/60 bg-card px-2 py-2 text-xs font-semibold text-primary shadow-sm"
@@ -331,7 +330,6 @@ export function AgentDashboard() {
           <Search className="h-4 w-4" /> রেজাল্ট চেক
         </Link>
         <AboutServices />
-        <OfficeAddress />
       </div>
     </div>
   );

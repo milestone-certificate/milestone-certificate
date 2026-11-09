@@ -56,7 +56,6 @@ const agentNav: readonly NavigationItem[] = [
   { to: "/my-works", label: "আমার কাজ", icon: Briefcase },
   { to: "/sub-agents", label: "সাব-এজেন্ট", icon: Users },
   { to: "/result-check", label: "রেজাল্ট চেক", icon: ClipboardCheck },
-  { to: "/office", label: "অফিস ঠিকানা", icon: Home },
   { to: "/about", label: "আমাদের সেবা", icon: Globe },
 ];
 

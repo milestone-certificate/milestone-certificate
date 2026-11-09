@@ -5,7 +5,6 @@ export const AGENT_PATHS = [
   "/submit-job",
   "/my-works",
   "/sub-agents",
-  "/office",
   "/about",
   "/agent-results",
   "/result-check",
@@ -64,13 +63,16 @@ export function normalizeAppPath(path: string): string {
 const inPath = (path: string, routes: readonly string[]) =>
   routes.some((base) => path === base || path.startsWith(`${base}/`));
 
+// Retired pages remain inaccessible even to managers, who otherwise have broad access.
+const RETIRED_PATHS = ["/office"] as const;
+
 /**
  * Check the same role/path rules used by the authenticated route guard.
  * Managers can use the common management pages; only admins can use admin-only pages.
  */
 export function canAccessPath(path: string, roles: string[]): boolean {
   path = normalizeAppPath(path);
-  if (!path) return false;
+  if (!path || inPath(path, RETIRED_PATHS)) return false;
   if (inPath(path, ADMIN_ONLY_PATHS)) {
     return roles.includes("admin");
   }

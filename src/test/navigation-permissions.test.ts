@@ -5,7 +5,24 @@ import { canAccessPath } from "@/lib/roles";
 
 const pathsFor = (roles: string[]) => navigationForRoles(roles).map((item) => item.to);
 
+const accountRoles = [
+  ["admin"],
+  ["staff"],
+  ["agent"],
+  ["management"],
+  ["service_provider"],
+  ["admin", "agent"],
+  ["management", "agent"],
+  [],
+];
+
 describe("role-based navigation", () => {
+  it("removes the office address from every account's menu", () => {
+    for (const roles of accountRoles) {
+      expect(pathsFor(roles)).not.toContain("/office");
+    }
+  });
+
   it("puts SVP booking first for agents and keeps it out of the admin menu", () => {
     const agentPaths = pathsFor(["agent"]);
     expect(agentPaths[0]).toBe("/svp-booking");
@@ -57,6 +74,22 @@ describe("role-based navigation", () => {
 });
 
 describe("authenticated path policy", () => {
+  it("retires office address URLs for all roles, including admins and mixed accounts", () => {
+    for (const roles of accountRoles) {
+      for (const path of [
+        "/office",
+        "/office/",
+        "//office",
+        "/%6fffice",
+        "/office/details",
+        "/office?share=true",
+      ]) {
+        expect(canAccessPath(path, roles), `${roles.join("+") || "customer"}: ${path}`).toBe(false);
+      }
+    }
+    expect(canAccessPath("/center-addresses", ["admin"])).toBe(true);
+  });
+
   it("keeps SVP booking agent-only while finance stays admin-only", () => {
     expect(canAccessPath("/svp-booking", ["staff"])).toBe(false);
     expect(canAccessPath("/svp-booking", ["admin"])).toBe(false);
