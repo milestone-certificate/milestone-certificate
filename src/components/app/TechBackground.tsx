@@ -5,33 +5,15 @@ import c2 from "@/assets/bg-cosmic-2.webp";
 import r2 from "@/assets/bg-robot-2.webp";
 import t1 from "@/assets/bg-tech-1.webp";
 import c3 from "@/assets/bg-cosmic-3.webp";
-import light from "@/assets/bg-reception-light.jpg";
 
 const IMAGES = [c1, r1, c2, r2, t1, c3];
 
-export function TechBackground({ variant = "dark" }: { variant?: "dark" | "light" }) {
+export function TechBackground() {
   const [i, setI] = useState(0);
   useEffect(() => {
-    if (variant === "light") return;
     const id = setInterval(() => setI((v) => (v + 1) % IMAGES.length), 7000);
     return () => clearInterval(id);
-  }, [variant]);
-  if (variant === "light") {
-    return (
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-background"
-      >
-        <img
-          src={light}
-          alt=""
-          width={1600}
-          height={1008}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      </div>
-    );
-  }
+  }, []);
   return (
     <div
       aria-hidden

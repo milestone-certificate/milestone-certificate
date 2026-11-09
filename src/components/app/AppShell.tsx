@@ -16,7 +16,6 @@ import { roleSummary } from "@/lib/roles";
 
 export function AppShell({ children, roles = [] }: { children: ReactNode; roles?: string[] }) {
   useWorksRealtime();
-  const manager = roles.includes("admin") || roles.includes("staff");
   const items = navigationForRoles(roles);
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -41,16 +40,9 @@ export function AppShell({ children, roles = [] }: { children: ReactNode; roles?
     qc.clear();
     navigate({ to: "/auth" });
   };
-  const receptionOnly =
-    !manager &&
-    roles.includes("management") &&
-    !roles.includes("agent") &&
-    !roles.includes("service_provider");
   return (
-    <div
-      className={`relative isolate min-h-screen md:flex ${receptionOnly ? "reception-light bg-background" : ""}`}
-    >
-      <TechBackground variant={receptionOnly ? "light" : "dark"} />
+    <div className="relative isolate min-h-screen md:flex">
+      <TechBackground />
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-hidden border-r bg-sidebar/85 p-4 backdrop-blur-md md:flex">
         <div className="mb-6 flex items-center gap-2 px-2">
           <img

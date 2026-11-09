@@ -55,30 +55,6 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-.reception-light {
-  --background: oklch(0.985 0.004 160);
-  --foreground: oklch(0.22 0.02 230);
-  --card: oklch(1 0 0 / 0.92);
-  --card-foreground: oklch(0.22 0.02 230);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.02 230);
-  --primary: oklch(0.55 0.15 155);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.95 0.01 160);
-  --secondary-foreground: oklch(0.25 0.02 230);
-  --muted: oklch(0.95 0.008 200);
-  --muted-foreground: oklch(0.45 0.02 220);
-  --accent: oklch(0.93 0.04 155);
-  --accent-foreground: oklch(0.3 0.06 155);
-  --border: oklch(0.88 0.01 220);
-  --input: oklch(0.86 0.01 220);
-  --sidebar: oklch(1 0 0 / 0.92);
-  --sidebar-foreground: oklch(0.28 0.02 230);
-  --sidebar-accent: oklch(0.93 0.04 155);
-  --sidebar-accent-foreground: oklch(0.3 0.06 155);
-  --sidebar-border: oklch(0.88 0.01 220);
-  color: var(--foreground);
-}
 :root {
   --radius: 0.9rem;
   --background: oklch(0.13 0.015 230);
