@@ -67,7 +67,7 @@ export function SvpReschedulePanel({
   rescheduleTimes,
   countryId,
   categoryId,
-  isTargeted = true,
+  isTargeted: targetedHint = true,
   loadBalancer = false,
   onCancel,
   onDone,
@@ -87,6 +87,7 @@ export function SvpReschedulePanel({
   ) => void;
 }) {
   const queryClient = useQueryClient();
+  const [nativeReservationId, setNativeReservationId] = useState<string | null>(null);
   const [city, setCity] = useState<string | null>(null);
   const [languageCode, setLanguageCode] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(() => monthKey(new Date()));
@@ -131,6 +132,34 @@ export function SvpReschedulePanel({
   });
   const occupation = occupationQuery.data?.ok ? occupationQuery.data.data : null;
   const effectiveCategoryId = detail?.categoryId ?? categoryId ?? occupation?.categoryId ?? null;
+  const datesQuery = useQuery({
+    queryKey: ["svp-reschedule-dates", reservationId, effectiveCategoryId, effectiveCountryId],
+    queryFn: () =>
+      listSvpRescheduleDates({
+        data: {
+          reservationId,
+          categoryId: effectiveCategoryId as number,
+          countryId: effectiveCountryId,
+        },
+      }),
+    enabled:
+      detail?.canBeRescheduled === true && effectiveCategoryId != null && rescheduleTimes !== 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const dates = useMemo(() => (datesQuery.data?.ok ? datesQuery.data.data : []), [datesQuery.data]);
+  // An existing reservation can use native SVP sessions even when the account's
+  // cached country flag says site-based. Verify its actual dates before choosing a flow.
+  const hasNativeDates = datesQuery.data?.ok === true && dates.length > 0;
+  const isTargeted =
+    targetedHint || loadBalancer || hasNativeDates || nativeReservationId === reservationId;
+  const checkingNativeAvailability = !isTargeted && datesQuery.isFetching;
+  const nativeProbeFailed = datesQuery.isError || Boolean(datesQuery.data && !datesQuery.data.ok);
+  const deferSiteFlow =
+    !isTargeted && (checkingNativeAvailability || nativeProbeFailed || !datesQuery.data);
+  useEffect(() => {
+    if (hasNativeDates) setNativeReservationId(reservationId);
+  }, [hasNativeDates, reservationId]);
   const takamolOccupationsQuery = useQuery({
     queryKey: ["takamol-occupations"],
     queryFn: () => lookupTakamolAvailability({ data: { endpoint: "occupations" } }),
@@ -201,28 +230,13 @@ export function SvpReschedulePanel({
     .filter((code) => code !== activeLanguage)
     .slice(0, 6);
   const monthOptions = useMemo(() => buildMonthOptions(), []);
-  const datesQuery = useQuery({
-    queryKey: ["svp-reschedule-dates", reservationId, effectiveCategoryId, effectiveCountryId],
-    queryFn: () =>
-      listSvpRescheduleDates({
-        data: {
-          reservationId,
-          categoryId: effectiveCategoryId as number,
-          countryId: effectiveCountryId,
-        },
-      }),
-    enabled: isTargeted && effectiveCategoryId != null,
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
-  const dates = useMemo(() => (datesQuery.data?.ok ? datesQuery.data.data : []), [datesQuery.data]);
   const citiesQuery = useQuery({
     queryKey: ["takamol-reschedule-cities", effectiveCategoryId],
     queryFn: () =>
       lookupTakamolAvailability({
         data: { endpoint: "cities", categoryId: String(effectiveCategoryId) },
       }),
-    enabled: !isTargeted && effectiveCategoryId != null,
+    enabled: !isTargeted && !deferSiteFlow && effectiveCategoryId != null,
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -266,7 +280,7 @@ export function SvpReschedulePanel({
   const centersQuery = useQuery({
     queryKey: ["takamol-reschedule-centers", selectedCity],
     queryFn: () => lookupTakamolAvailability({ data: { endpoint: "centers", city: selectedCity } }),
-    enabled: !isTargeted && Boolean(selectedCity),
+    enabled: !isTargeted && !deferSiteFlow && Boolean(selectedCity),
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -287,7 +301,11 @@ export function SvpReschedulePanel({
         },
       }),
     enabled:
-      !isTargeted && effectiveCategoryId != null && Boolean(selectedCity) && Boolean(prometricDate),
+      !isTargeted &&
+      !deferSiteFlow &&
+      effectiveCategoryId != null &&
+      Boolean(selectedCity) &&
+      Boolean(prometricDate),
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -322,7 +340,12 @@ export function SvpReschedulePanel({
           month: selectedMonth,
         },
       }),
-    enabled: !isTargeted && Boolean(selectedCity) && Boolean(activeLanguage) && !languagesLoading,
+    enabled:
+      !isTargeted &&
+      !deferSiteFlow &&
+      Boolean(selectedCity) &&
+      Boolean(activeLanguage) &&
+      !languagesLoading,
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -359,6 +382,7 @@ export function SvpReschedulePanel({
       }),
     enabled:
       !isTargeted &&
+      !deferSiteFlow &&
       Boolean(prometricExamId) &&
       Boolean(prometricDate) &&
       siteIdsForDate.length > 0,
@@ -425,6 +449,7 @@ export function SvpReschedulePanel({
   const availabilityQuery = isTargeted ? sessionsQuery : slotsQuery;
   const canConfirmReschedule =
     Boolean(detail?.canBeRescheduled) &&
+    !deferSiteFlow &&
     Boolean(activeLanguage) &&
     !languagesLoading &&
     !detailQuery.isFetching &&
@@ -519,6 +544,7 @@ export function SvpReschedulePanel({
 
   const selectCity = (value: string) => {
     resetSelection();
+    setSelectedMonth(monthKey(new Date()));
     setCity(value);
   };
 
@@ -705,8 +731,9 @@ export function SvpReschedulePanel({
       ? splitDateTime(selectedDate.startAt).date
       : ""
     : (prometricDate ?? "");
-  const datesLoading = isTargeted ? datesQuery.isFetching : sitesQuery.isFetching;
-  const dateQuery = isTargeted ? datesQuery : sitesQuery;
+  const datesLoading =
+    checkingNativeAvailability || (isTargeted ? datesQuery.isFetching : sitesQuery.isFetching);
+  const dateQuery = isTargeted || deferSiteFlow ? datesQuery : sitesQuery;
   const datesFailed = dateQuery.isError || Boolean(dateQuery.data && !dateQuery.data.ok);
   const datesNeedSignIn = Boolean(
     dateQuery.data && !dateQuery.data.ok && dateQuery.data.needsSignIn,
@@ -772,7 +799,9 @@ export function SvpReschedulePanel({
           <NativeSelect
             value={selectedCity}
             onChange={(event) => selectCity(event.target.value)}
-            disabled={isTargeted ? datesQuery.isFetching : citiesQuery.isFetching}
+            disabled={
+              deferSiteFlow || (isTargeted ? datesQuery.isFetching : citiesQuery.isFetching)
+            }
             required
           >
             <option value="">শহর বাছুন</option>
@@ -823,7 +852,7 @@ export function SvpReschedulePanel({
           শহর আবার দেখুন
         </Button>
       )}
-      {isTargeted && effectiveCategoryId == null && (
+      {effectiveCategoryId == null && (
         <Button
           type="button"
           variant="outline"
@@ -844,9 +873,14 @@ export function SvpReschedulePanel({
           variant="outline"
           size="sm"
           disabled={datesLoading}
-          onClick={() =>
-            datesNeedSignIn && onReconnect ? onReconnect() : void dateQuery.refetch()
-          }
+          onClick={() => {
+            if (datesNeedSignIn && onReconnect) {
+              onReconnect();
+              return;
+            }
+            void datesQuery.refetch();
+            if (!isTargeted && !deferSiteFlow) void sitesQuery.refetch();
+          }}
         >
           {datesNeedSignIn && onReconnect ? "সংযোগ করুন" : "তারিখ আবার দেখুন"}
         </Button>
@@ -868,7 +902,7 @@ export function SvpReschedulePanel({
               shownDateOptions.find((entry) => entry.date === date) ?? { date, city: selectedCity },
             )
           }
-          {...(!isTargeted
+          {...(!isTargeted && !deferSiteFlow
             ? {
                 month: selectedMonth,
                 monthOptions,

@@ -151,6 +151,7 @@ function renderPanel(props?: {
   client?: QueryClient;
   canBeRescheduled?: boolean;
   isTargeted?: boolean;
+  nativeDates?: boolean;
   loadBalancer?: boolean;
   onReconnect?: () => void;
   rescheduleTimes?: number | null;
@@ -160,6 +161,9 @@ function renderPanel(props?: {
 }) {
   if (props?.canBeRescheduled === false) {
     mocks.detail.mockResolvedValue({ ok: true, data: { ...detail, canBeRescheduled: false } });
+  }
+  if (props?.isTargeted === false && !props.nativeDates) {
+    mocks.dates.mockResolvedValue({ ok: true, data: [] });
   }
   const client =
     props?.client ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -405,7 +409,11 @@ describe("SVP site-based reschedule", () => {
 
     const citySelect = (await screen.findByLabelText("শহর")) as HTMLSelectElement;
     expect(citySelect).toHaveValue("Dhaka");
-    expect(mocks.takamol).toHaveBeenCalledWith({ data: { endpoint: "cities", categoryId: "159" } });
+    await waitFor(() =>
+      expect(mocks.takamol).toHaveBeenCalledWith({
+        data: { endpoint: "cities", categoryId: "159" },
+      }),
+    );
     fireEvent.change(citySelect, { target: { value: "Dhaka" } });
     await changeMonth("2026-12");
     await waitFor(() =>
@@ -1106,4 +1114,122 @@ it("labels an automatic Takamol code using the complete SVP catalogue without ex
   expect(language).toHaveValue("LOABB");
   expect(within(language).getByRole("option", { name: "বাংলা" })).toHaveValue("LOABB");
   expect(within(language).queryByRole("option", { name: "LOABB" })).not.toBeInTheDocument();
+});
+
+describe("reschedule mode comes from verified reservation availability", () => {
+  it("shows native dates with a false account flag instead of an empty future-month calendar", async () => {
+    mocks.detail.mockResolvedValue({
+      ok: true,
+      data: { ...detail, city: "Rajshahi", countryId: 78 },
+    });
+    mocks.dates.mockResolvedValue({
+      ok: true,
+      data: [
+        { startAt: "2026-12-01", city: "Khulna", seats: 8 },
+        { startAt: "2026-12-02", city: "Rajshahi", seats: 5 },
+      ],
+    });
+    renderPanel({ isTargeted: false, nativeDates: true });
+    const city = await screen.findByLabelText("শহর");
+    await waitFor(() => expect(city).toHaveValue("Rajshahi"));
+    fireEvent.change(city, { target: { value: "Khulna" } });
+    await pickRescheduleDate();
+    await waitFor(() =>
+      expect(mocks.sessions).toHaveBeenLastCalledWith({
+        data: { categoryId: 159, city: "Khulna", examDate: "2026-12-01" },
+      }),
+    );
+    expect(mocks.dates).toHaveBeenCalledWith({
+      data: { reservationId: "987", categoryId: 159, countryId: 78 },
+    });
+    expect(mocks.sites).not.toHaveBeenCalled();
+    await openDates();
+    expect(screen.queryByLabelText("মাস")).not.toBeInTheDocument();
+    expect(mocks.reschedule).not.toHaveBeenCalled();
+    expect(mocks.siteReschedule).not.toHaveBeenCalled();
+  });
+  it("waits for the read-only native probe before trying the site-based flow", async () => {
+    let resolveDates!: (r: unknown) => void;
+    mocks.dates.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDates = resolve;
+        }),
+    );
+    renderPanel({ isTargeted: false, nativeDates: true });
+    await waitFor(() => expect(mocks.dates).toHaveBeenCalled());
+    expect(mocks.sites).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("মাস")).not.toBeInTheDocument();
+    await act(async () =>
+      resolveDates({ ok: true, data: [{ startAt: "2026-12-01", city: "Dhaka", seats: 4 }] }),
+    );
+    await pickRescheduleDate();
+    await waitFor(() => expect(mocks.sessions).toHaveBeenCalled());
+    expect(mocks.sites).not.toHaveBeenCalled();
+  });
+  it("keeps a verified native reservation in its flow when refreshed availability becomes empty", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderPanel({ isTargeted: false, nativeDates: true, client });
+    await pickRescheduleDate();
+    await waitFor(() => expect(mocks.sessions).toHaveBeenCalled());
+    mocks.dates.mockResolvedValue({ ok: true, data: [] });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["svp-reschedule-dates"] });
+    });
+    expect(await screen.findByRole("button", { name: "তারিখ আবার দেখুন" })).toBeInTheDocument();
+    expect(mocks.sites).not.toHaveBeenCalled();
+    await openDates();
+    expect(screen.queryByLabelText("মাস")).not.toBeInTheDocument();
+    expect(screen.getByText("এখন কোনো খালি তারিখ নেই।")).toBeInTheDocument();
+  });
+  it("rechecks native availability on retry rather than getting stuck in the site calendar", async () => {
+    mocks.dates.mockResolvedValue({ ok: true, data: [] });
+    mocks.sites.mockResolvedValue({ ok: true, data: { examId: null, sites: [] } });
+    renderPanel({ isTargeted: false, nativeDates: true });
+    const retry = await screen.findByRole("button", { name: "তারিখ আবার দেখুন" });
+    mocks.dates.mockResolvedValue({
+      ok: true,
+      data: [{ startAt: "2026-12-01", city: "Dhaka", seats: 4 }],
+    });
+    fireEvent.click(retry);
+    await pickRescheduleDate();
+    await waitFor(() => expect(mocks.sessions).toHaveBeenCalled());
+    expect(screen.queryByLabelText("মাস")).not.toBeInTheDocument();
+  });
+  it("resets a site-based month after changing the city", async () => {
+    const normal = mocks.takamol.getMockImplementation();
+    mocks.takamol.mockImplementation((args: { data: { endpoint: string } }) =>
+      args.data.endpoint === "cities"
+        ? Promise.resolve({ success: true, data: { cities: ["Dhaka", "Chattogram"] } })
+        : normal?.(args),
+    );
+    renderPanel({ isTargeted: false });
+    await changeMonth("2027-07");
+    fireEvent.change(screen.getByLabelText("শহর"), { target: { value: "Chattogram" } });
+    await waitFor(() =>
+      expect(mocks.sites).toHaveBeenLastCalledWith({
+        data: expect.objectContaining({
+          city: "Chattogram",
+          month: new Date().toISOString().slice(0, 7),
+        }),
+      }),
+    );
+  });
+});
+
+it("does not interpret a failed native lookup as an empty site-based month", async () => {
+  mocks.dates.mockResolvedValue({ ok: false, message: "SVP temporarily unavailable" });
+  renderPanel({ isTargeted: false, nativeDates: true });
+  const retry = await screen.findByRole("button", { name: "তারিখ আবার দেখুন" });
+  expect(mocks.sites).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("মাস")).not.toBeInTheDocument();
+  expect(screen.queryByText("SVP temporarily unavailable")).not.toBeInTheDocument();
+  mocks.dates.mockResolvedValue({
+    ok: true,
+    data: [{ startAt: "2026-12-01", city: "Dhaka", seats: 4 }],
+  });
+  fireEvent.click(retry);
+  await pickRescheduleDate();
+  await waitFor(() => expect(mocks.sessions).toHaveBeenCalled());
+  expect(mocks.sites).not.toHaveBeenCalled();
 });
