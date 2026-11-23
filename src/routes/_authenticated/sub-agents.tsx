@@ -1,3 +1,4 @@
+import { ListLoadStatus } from "@/components/app/ui-bits";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -47,7 +48,8 @@ function SubAgents() {
   const unpaid = useMyUnpaid();
   const qc = useQueryClient();
   const { data: me } = useQuery(myAccountQ);
-  const { data: works = [] } = useQuery(worksQ);
+  const listQuery = useQuery(worksQ);
+  const { data: works = [] } = listQuery;
   const occ = lookup(useQuery(occQ).data);
   const subs = useQuery({ ...subsQ(me?.user_id ?? ""), enabled: !!me?.user_id }).data ?? [];
   const [f, setF] = useState({ name: "", mobile: "", password: "" });
@@ -100,14 +102,21 @@ function SubAgents() {
 
       <section className="space-y-3 rounded-2xl border bg-card p-5 shadow-sm">
         <h2 className="font-semibold">অনুমোদনের অপেক্ষায় ({bn(pending.length)})</h2>
-        {pending.length === 0 ? (
+        {listQuery.isLoading || listQuery.isLoadingError ? (
+          <ListLoadStatus query={listQuery} />
+        ) : pending.length === 0 ? (
           <p className="text-sm text-muted-foreground">কোনো অপেক্ষমান কাজ নেই।</p>
         ) : (
           <ul className="space-y-3">
             {pending.map((w) => (
               <li key={w.id} className="rounded-xl border p-3">
                 <div className="flex items-center gap-3 font-semibold">
-                  <CandidatePhoto path={w.candidate_photo_path} name={w.candidate_name} size={44} />
+                  <CandidatePhoto
+                    path={w.candidate_photo_path}
+                    name={w.candidate_name}
+                    size={44}
+                    deferUntilVisible
+                  />
                   <span>{w.candidate_name}</span>
                   <span className="text-sm font-normal text-muted-foreground">#{w.ref_code}</span>
                 </div>

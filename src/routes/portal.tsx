@@ -4,6 +4,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { homeForRoles } from "@/lib/roles";
+import { checkDeviceSession, forceSignOut, getVerifiedUser } from "@/lib/device-session";
 import { RESULT_LABEL, bn, fmtDate, portalQ, type PortalData, type PortalExam } from "@/lib/data";
 
 export const Route = createFileRoute("/portal")({
@@ -25,18 +26,17 @@ export const Route = createFileRoute("/portal")({
     ],
   }),
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
-    const roles = await supabase.from("user_roles").select("role").eq("user_id", data.user.id);
+    const user = await getVerifiedUser();
+    if (!user) throw redirect({ to: "/auth" });
+    const roles = await supabase.from("user_roles").select("role").eq("user_id", user.id);
     if (roles.error) throw new Error("অ্যাক্সেস যাচাই করা যায়নি। আবার চেষ্টা করুন।");
     if (roles.data?.length) throw redirect({ to: homeForRoles(roles.data.map((row) => row.role)) });
-    const { checkDeviceSession, forceSignOut } = await import("@/lib/device-session");
     const reason = await checkDeviceSession();
     if (reason) {
       await forceSignOut(reason);
       throw redirect({ to: "/auth" });
     }
-    return { userId: data.user.id };
+    return { userId: user.id };
   },
   loader: ({ context }) => context.queryClient.ensureQueryData(portalQ(context.userId)),
   component: PortalRoute,

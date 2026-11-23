@@ -1,20 +1,17 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app/AppShell";
 import { canAccessPath, homeForRoles, isManager } from "@/lib/roles";
-import { checkDeviceSession, forceSignOut } from "@/lib/device-session";
+import { checkDeviceSession, forceSignOut, getVerifiedUser } from "@/lib/device-session";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async ({ location }) => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error && !isAuthSessionMissingError(error) && error.status !== 401)
-      throw new Error("সেশন যাচাই করা যাচ্ছে না। আবার চেষ্টা করুন।");
-    if (error || !data.user) throw redirect({ to: "/auth" });
+    const user = await getVerifiedUser();
+    if (!user) throw redirect({ to: "/auth" });
     const [reason, rolesRes] = await Promise.all([
       checkDeviceSession(),
-      supabase.from("user_roles").select("role").eq("user_id", data.user.id),
+      supabase.from("user_roles").select("role").eq("user_id", user.id),
     ]);
     if (reason) {
       await forceSignOut(reason);
@@ -25,7 +22,7 @@ export const Route = createFileRoute("/_authenticated")({
     if (roles.length === 0) throw redirect({ to: "/portal" });
     if (!canAccessPath(location.pathname, roles)) throw redirect({ to: homeForRoles(roles) });
     if (!isManager(roles)) {
-      const activeRes = await supabase.rpc("is_active_account", { _user_id: data.user.id });
+      const activeRes = await supabase.rpc("is_active_account", { _user_id: user.id });
       if (activeRes.error || activeRes.data === null)
         throw new Error("অ্যাকাউন্ট যাচাই করা যাচ্ছে না। আবার চেষ্টা করুন।");
       const active = activeRes.data;
@@ -34,7 +31,7 @@ export const Route = createFileRoute("/_authenticated")({
         throw redirect({ to: "/auth" });
       }
     }
-    return { user: data.user, roles };
+    return { user, roles };
   },
   component: Layout,
 });

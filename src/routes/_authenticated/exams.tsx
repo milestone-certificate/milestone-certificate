@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PageHeader, NativeSelect, ResultBadge, Empty } from "@/components/app/ui-bits";
+import { ListLoadStatus, PageHeader, NativeSelect, ResultBadge, Empty } from "@/components/app/ui-bits";
 import { ExamDialog, ResultDialog } from "@/components/app/forms";
 import { ResultShareActions } from "@/components/app/ResultListShare";
 import {
@@ -49,7 +49,8 @@ const TABS = {
 type Tab = keyof typeof TABS;
 
 function ExamsPage() {
-  const { data: exams = [] } = useQuery(examsQ);
+  const listQuery = useQuery(examsQ);
+  const { data: exams = [] } = listQuery;
   const { data: cands = [] } = useQuery(candidatesQ);
   const { data: occ } = useQuery(occQ);
   const { data: ttc } = useQuery(ttcQ);
@@ -101,6 +102,9 @@ function ExamsPage() {
         (asc ? 1 : -1) *
         (a.exam_date + (a.exam_time ?? "")).localeCompare(b.exam_date + (b.exam_time ?? "")),
     );
+
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
 
   return (
     <div>
@@ -237,7 +241,7 @@ function ExamsPage() {
           </div>
         )}
       </div>
-      <ExamDialog open={open} onOpenChange={setOpen} />
+      {open && <ExamDialog open={open} onOpenChange={setOpen} />}
       <ResultDialog open={!!resExam} onOpenChange={(o) => !o && setResExam(null)} exam={resExam} />
     </div>
   );

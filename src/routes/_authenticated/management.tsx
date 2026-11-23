@@ -1,3 +1,4 @@
+import { ListLoadStatus } from "@/components/app/ui-bits";
 import { DateSelect } from "@/components/app/DateSelect";
 import { CandidatePhoto } from "@/components/app/CandidatePhoto";
 import { createFileRoute } from "@tanstack/react-router";
@@ -44,7 +45,8 @@ const ARRIVAL: Record<string, string> = {
 
 function ManagementPage() {
   const qc = useQueryClient();
-  const { data = [] } = useQuery(worksQ);
+  const listQuery = useQuery(worksQ);
+  const { data = [] } = listQuery;
   const occ = lookup(useQuery(occQ).data);
   const [q, setQ] = useState("");
   const [day, setDay] = useState("all");
@@ -110,6 +112,9 @@ function ManagementPage() {
     }
   };
   const sel = "h-10 rounded-lg border bg-card px-2 text-sm";
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
+
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <h1 className="font-display text-2xl font-bold">পরীক্ষার্থী রিসেপশন ({bn(works.length)})</h1>
@@ -232,7 +237,12 @@ function ReceptionCard({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex items-center gap-3">
-          <CandidatePhoto path={work.candidate_photo_path} name={work.candidate_name} size={52} />
+          <CandidatePhoto
+            path={work.candidate_photo_path}
+            name={work.candidate_name}
+            size={52}
+            deferUntilVisible
+          />
           <div>
             <h2 className="font-semibold">{work.candidate_name}</h2>
             <p className="text-sm text-muted-foreground">

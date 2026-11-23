@@ -6,7 +6,7 @@ import { AlertCircle, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PageHeader, ResultBadge, Empty, Field } from "@/components/app/ui-bits";
+import { ListLoadStatus, PageHeader, ResultBadge, Empty, Field } from "@/components/app/ui-bits";
 import { ResultDialog } from "@/components/app/forms";
 import {
   candidatesQ,
@@ -47,7 +47,8 @@ export const Route = createFileRoute("/_authenticated/results")({
 
 function ResultsPage() {
   const { data: cands = [] } = useQuery(candidatesQ);
-  const { data: exams = [] } = useQuery(examsQ);
+  const listQuery = useQuery(examsQ);
+  const { data: exams = [] } = listQuery;
   const { data: occ } = useQuery(occQ);
   const { data: ttc } = useQuery(ttcQ);
   const refresh = useRefreshAll();
@@ -165,6 +166,9 @@ function ResultsPage() {
     if (c?.passport_no && key) runCheck(c.passport_no, key, e);
     else toast.info("পাসপোর্ট/পেশা মেলেনি — বাম পাশ থেকে পেশা নির্বাচন করে চেক করুন");
   };
+
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
 
   return (
     <div>

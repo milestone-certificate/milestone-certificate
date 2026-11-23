@@ -1,3 +1,4 @@
+import { ListLoadStatus } from "@/components/app/ui-bits";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -54,7 +55,8 @@ const paymentsQ = {
 
 function PaymentsPage() {
   const qc = useQueryClient();
-  const { data: pays = [] } = useQuery(paymentsQ);
+  const listQuery = useQuery(paymentsQ);
+  const { data: pays = [] } = listQuery;
   const { data: cands = [] } = useQuery(candidatesQ);
   const occ = lookup(useQuery(occQ).data);
   const cMap = new Map(cands.map((c) => [c.id, c]));
@@ -114,6 +116,9 @@ function PaymentsPage() {
       (tab === "all" || p.status === "pending") &&
       (match(cMap.get(p.candidate_id)) || p.trx_id.toLowerCase().includes(s)),
   );
+
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">

@@ -1,3 +1,4 @@
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
 const KEY = "device_session_key";
@@ -12,6 +13,14 @@ const CACHE_MS = 60 * 1000;
 export const resetDeviceCheckCache = () => {
   lastOkAt = 0;
 };
+
+/** Treat temporary auth-service failures as retryable route errors. */
+export async function getVerifiedUser() {
+  const { data, error } = await supabase.auth.getUser();
+  if (error && !isAuthSessionMissingError(error) && error.status !== 401)
+    throw new Error("সেশন যাচাই করা যাচ্ছে না। আবার চেষ্টা করুন।");
+  return error ? null : data.user;
+}
 
 /** Call right after a successful sign-in: this device becomes the active one (admins: 24h, others: 12h). */
 export async function claimDeviceSession(isAdmin?: boolean) {

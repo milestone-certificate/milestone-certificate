@@ -1,11 +1,11 @@
+import { ListLoadStatus } from "@/components/app/ui-bits";
 import { DateSelect } from "@/components/app/DateSelect";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { worksQ, fmtDhakaDateTime } from "@/lib/works";
 import { bn, occQ, ttcQ, lookup } from "@/lib/data";
 import { checkSubmissionSvp } from "@/lib/svp.functions";
@@ -36,21 +36,19 @@ const dhakaDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Asia/Dh
 function AgentResults() {
   const qc = useQueryClient();
   const check = useServerFn(checkSubmissionSvp);
-  const { data: all = [] } = useQuery(worksQ);
+  const listQuery = useQuery(worksQ);
+  const { data: all = [] } = listQuery;
   const { data: occ } = useQuery(occQ);
   const { data: ttc } = useQuery(ttcQ);
   const occName = lookup(occ),
     ttcName = lookup(ttc);
-  const [me, setMe] = useState<string | null>(null);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setMe(data.user?.id ?? null));
-  }, []);
+  const { user } = Route.useRouteContext();
   const [date, setDate] = useState(() => dhakaDay(new Date()));
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const s = q.trim().toUpperCase();
   const list = all
-    .filter((w) => w.submitted_by === me && w.status === "approved" && !!w.exam_at)
+    .filter((w) => w.submitted_by === user.id && w.status === "approved" && !!w.exam_at)
     .filter((w) => (date ? dhakaDay(new Date(w.exam_at)) === date : true))
     .filter(
       (w) =>
@@ -81,6 +79,9 @@ function AgentResults() {
       `রেজাল্ট পাওয়া: ${bn(found)} · এখনো আসেনি: ${bn(missing)}${failed ? ` · ব্যর্থ: ${bn(failed)}` : ""}`,
     );
   };
+
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">

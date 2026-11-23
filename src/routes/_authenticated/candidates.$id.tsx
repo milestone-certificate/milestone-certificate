@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PageHeader, ResultBadge, Empty } from "@/components/app/ui-bits";
+import { PageHeader, ResultBadge, Empty, ListLoadStatus } from "@/components/app/ui-bits";
 import { CandidateDialog, ExamDialog, ResultDialog } from "@/components/app/forms";
 import {
   candidatesQ,
@@ -55,7 +55,8 @@ function Profile() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const refresh = useRefreshAll();
-  const { data: cands, isLoading } = useQuery(candidatesQ);
+  const listQuery = useQuery(candidatesQ);
+  const { data: cands } = listQuery;
   const { data: allExams = [] } = useQuery(examsQ);
   const { data: allResults = [] } = useQuery(resultsQ);
   const { data: occ } = useQuery(occQ);
@@ -75,7 +76,8 @@ function Profile() {
   const [del, setDel] = useState(false);
 
   const c = cands?.find((x) => x.id === id);
-  if (isLoading) return <Empty>লোড হচ্ছে...</Empty>;
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
   if (!c)
     return (
       <Empty>

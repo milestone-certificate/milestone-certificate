@@ -1,3 +1,4 @@
+import { ListLoadStatus } from "@/components/app/ui-bits";
 import { ReceiveToggle } from "@/components/app/ReceiveStatus";
 import { CandidatePhoto } from "@/components/app/CandidatePhoto";
 import { AgentPhoto } from "@/components/app/AgentPhoto";
@@ -32,7 +33,8 @@ export const Route = createFileRoute("/_authenticated/provider")({
 
 function Provider() {
   const qc = useQueryClient();
-  const { data = [] } = useQuery(worksQ);
+  const listQuery = useQuery(worksQ);
+  const { data = [] } = listQuery;
   const ttc = lookup(useQuery(ttcQ).data);
   const occ = lookup(useQuery(occQ).data);
   const [q, setQ] = useState("");
@@ -88,6 +90,9 @@ function Provider() {
     qc.invalidateQueries({ queryKey: ["works"] });
   };
 
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
+
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <h1 className="font-display text-2xl font-bold">অনুমোদিত কাজ ({bn(works.length)})</h1>
@@ -137,6 +142,7 @@ function Provider() {
                         path={w.candidate_photo_path}
                         name={w.candidate_name}
                         size={36}
+                        deferUntilVisible
                       />
                       {w.candidate_name}
                     </div>

@@ -1,6 +1,7 @@
 import { AuthRetryableFetchError, AuthSessionMissingError } from "@supabase/supabase-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route } from "@/routes/_authenticated/route";
+import { Route as PortalRoute } from "@/routes/portal";
 
 const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
@@ -17,7 +18,8 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: mocks.active,
   },
 }));
-vi.mock("@/lib/device-session", () => ({
+vi.mock("@/lib/device-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/device-session")>()),
   checkDeviceSession: mocks.checkDeviceSession,
   forceSignOut: mocks.forceSignOut,
 }));
@@ -42,6 +44,19 @@ describe("candidates route access", () => {
       error: new AuthRetryableFetchError("Timed out", 504),
     });
     await expect(openCandidates()).rejects.toThrow("আবার চেষ্টা করুন");
+    expect(mocks.forceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps the customer portal session during an auth outage", async () => {
+    mocks.getUser.mockResolvedValue({
+      data: { user: null },
+      error: new AuthRetryableFetchError("Timed out", 504),
+    });
+    const beforeLoad = PortalRoute.options.beforeLoad!;
+    await expect(beforeLoad({} as Parameters<typeof beforeLoad>[0])).rejects.toThrow(
+      "আবার চেষ্টা করুন",
+    );
+    expect(mocks.roles).not.toHaveBeenCalled();
     expect(mocks.forceSignOut).not.toHaveBeenCalled();
   });
 

@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import type { ReactNode, SelectHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 import { RESULT_LABEL, fmtDate, type ExamResult } from "@/lib/data";
@@ -101,6 +102,32 @@ export function PageHeader({
 
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="py-10 text-center text-sm text-muted-foreground">{children}</div>;
+}
+
+export function ListLoadStatus({
+  query,
+}: {
+  query: {
+    isLoading: boolean;
+    isLoadingError: boolean;
+    isFetching: boolean;
+    refetch: () => Promise<unknown>;
+  };
+}) {
+  if (query.isLoading) return <Empty>লোড হচ্ছে...</Empty>;
+  return (
+    <Empty>
+      <p role="alert">তালিকা লোড করা যায়নি।</p>
+      <Button
+        className="mt-3"
+        variant="outline"
+        disabled={query.isFetching}
+        onClick={() => void query.refetch()}
+      >
+        আবার চেষ্টা করুন
+      </Button>
+    </Empty>
+  );
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {

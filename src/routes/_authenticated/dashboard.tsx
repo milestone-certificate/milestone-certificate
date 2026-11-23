@@ -348,8 +348,8 @@ function Dashboard() {
         </div>
       )}
 
-      <CandidateDialog open={candOpen} onOpenChange={setCandOpen} />
-      <ExamDialog open={examOpen} onOpenChange={setExamOpen} />
+      {candOpen && <CandidateDialog open={candOpen} onOpenChange={setCandOpen} />}
+      {examOpen && <ExamDialog open={examOpen} onOpenChange={setExamOpen} />}
     </div>
   );
 }
@@ -508,6 +508,7 @@ function BoguraToday({
                     path={candPhoto(e.candidate_id)}
                     name={candName(e.candidate_id)}
                     size={40}
+                    deferUntilVisible
                   />
                   <div className="min-w-0 select-text">
                     <Link

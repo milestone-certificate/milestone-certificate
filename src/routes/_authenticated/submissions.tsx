@@ -1,3 +1,4 @@
+import { ListLoadStatus } from "@/components/app/ui-bits";
 import { DateSelect } from "@/components/app/DateSelect";
 import { PassportHistory } from "@/components/app/PassportHistory";
 import { AppointmentScan } from "@/components/app/AppointmentScan";
@@ -53,7 +54,8 @@ function Submissions() {
   const { roles } = Route.useRouteContext();
   const canReview = roles.includes("admin") || roles.includes("staff");
   const qc = useQueryClient();
-  const { data: works = [] } = useQuery(worksQ);
+  const listQuery = useQuery(worksQ);
+  const { data: works = [] } = listQuery;
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts"],
     queryFn: () => listAccounts(),
@@ -216,6 +218,9 @@ function Submissions() {
     qc.invalidateQueries({ queryKey: ["works"] });
   };
 
+  if (listQuery.isLoading || listQuery.isLoadingError)
+    return <ListLoadStatus query={listQuery} />;
+
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <h1 className="font-display text-2xl font-bold">Submitted Works</h1>
@@ -374,6 +379,7 @@ function Submissions() {
                       path={w.candidate_photo_path}
                       name={w.candidate_name}
                       size={44}
+                      deferUntilVisible
                     />
                     <span>{w.candidate_name}</span>{" "}
                     <span className="text-sm font-normal text-muted-foreground">#{w.ref_code}</span>

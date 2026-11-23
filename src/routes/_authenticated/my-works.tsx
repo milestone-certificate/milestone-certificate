@@ -1,15 +1,15 @@
+import { ListLoadStatus } from "@/components/app/ui-bits";
 import { DateSelect } from "@/components/app/DateSelect";
 import { ReceiveToggle, ReceiveBanner } from "@/components/app/ReceiveStatus";
 import { ResultCheckButton } from "@/components/app/ResultCheckButton";
 import { ResultShareActions, workShareInfo } from "@/components/app/ResultListShare";
-import { supabase } from "@/integrations/supabase/client";
 import { EditMobileDialog } from "@/components/app/EditMobileDialog";
 import { EditWorkDialog } from "@/components/app/EditWorkDialog";
 import { CandidatePhoto } from "@/components/app/CandidatePhoto";
 import { AgentPhoto } from "@/components/app/AgentPhoto";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Copy, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { worksQ, openTicket, fmtDhakaDateTime } from "@/lib/works";
@@ -65,13 +65,11 @@ function MyWorks() {
   const unpaid = useMyUnpaid();
   const search = Route.useSearch();
   const [tab, setTab] = useState<Tab>(search.tab ?? "all");
-  const { data: allWorks = [] } = useQuery(worksQ);
-  const [me, setMe] = useState<string | null>(null);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setMe(data.user?.id ?? null));
-  }, []);
+  const listQuery = useQuery(worksQ);
+  const { data: allWorks = [] } = listQuery;
+  const { user } = Route.useRouteContext();
   // Only this ID's own submissions, even for accounts that also have reception/admin access.
-  const works = me ? allWorks.filter((w) => w.submitted_by === me) : [];
+  const works = allWorks.filter((w) => w.submitted_by === user.id);
   const ttc = lookup(useQuery(ttcQ).data);
   const occ = lookup(useQuery(occQ).data);
   const isDone = (w: (typeof works)[number]) =>
@@ -192,6 +190,8 @@ function MyWorks() {
       </div>
       {tab === "svp" ? (
         <SvpBookingHistory />
+      ) : listQuery.isLoading || listQuery.isLoadingError ? (
+        <ListLoadStatus query={listQuery} />
       ) : list.length === 0 ? (
         <p className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
           কোনো কাজ নেই।
@@ -206,7 +206,12 @@ function MyWorks() {
               <ReceiveBanner w={w} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3 font-semibold">
-                  <CandidatePhoto path={w.candidate_photo_path} name={w.candidate_name} size={44} />
+                  <CandidatePhoto
+                    path={w.candidate_photo_path}
+                    name={w.candidate_name}
+                    size={44}
+                    deferUntilVisible
+                  />
                   <span>{w.candidate_name}</span>{" "}
                   <span className="text-sm font-normal text-muted-foreground">#{w.ref_code}</span>
                 </div>
