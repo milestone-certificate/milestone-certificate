@@ -745,21 +745,9 @@ export const createSvpBooking = createServerFn({ method: "POST" })
       }
 
       const session = readStoredSvpSession(context.userId);
-      let credits = 0;
-      if (session?.svpUserId) {
-        const creditsResponse = await svpAuthedRequest(
-          context.userId,
-          `/users/${encodeURIComponent(session.svpUserId)}/balance`,
-          {
-            query: {
-              ...LOCALE_QUERY,
-              methodology_type: "in_person",
-              occupation_id: data.occupationId,
-            },
-          },
-        );
-        if (creditsResponse.ok) credits = parseSvpCredits(creditsResponse.payload);
-      }
+      const credits = session?.svpUserId
+        ? await readSvpCredits(context.userId, session.svpUserId, data.occupationId)
+        : 0;
 
       if (credits > 0) {
         const payment = await svpAuthedRequest(

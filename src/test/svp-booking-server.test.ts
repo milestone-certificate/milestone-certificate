@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ request: vi.fn() }));
+const mocks = vi.hoisted(() => ({ request: vi.fn(), session: vi.fn() }));
 vi.mock("@tanstack/react-start", () => ({
   createServerFn: () => {
     const builder = {
@@ -14,7 +14,7 @@ vi.mock("@tanstack/react-start", () => ({
 vi.mock("@/integrations/supabase/auth-middleware", () => ({ requireSupabaseAuth: {} }));
 vi.mock("@/lib/svp-session.server", () => ({
   requireSvpAllowedRole: vi.fn(),
-  readStoredSvpSession: () => null,
+  readStoredSvpSession: mocks.session,
   svpAuthedRequest: mocks.request,
   svpAuthedBinary: vi.fn(),
   SvpSessionMissingError: class extends Error {},
@@ -37,9 +37,32 @@ const invoke = (fn: unknown, data: unknown) =>
   (fn as (args: unknown) => Promise<{ ok: boolean }>)({ context, data });
 beforeEach(() => {
   mocks.request.mockReset();
+  mocks.session.mockReset().mockReturnValue(null);
 });
 
 describe("booking and reschedule mutation safety", () => {
+  it.each([200, 404])("uses SVP credits when the primary balance returns HTTP %s", async (status) => {
+    mocks.session.mockReturnValue({ svpUserId: "account-1" });
+    mocks.request
+      .mockResolvedValueOnce(response({ can_proceed: true }))
+      .mockResolvedValueOnce(response({ exam_session_id: 777 }))
+      .mockResolvedValueOnce(response({ id: 987 }))
+      .mockResolvedValueOnce(response({}))
+      .mockResolvedValueOnce(response({ reservation_credits: 1 }, status));
+    if (status === 404) mocks.request.mockResolvedValueOnce(response({ reservation_credits: 1 }));
+    mocks.request.mockResolvedValueOnce(response({}));
+
+    expect(await invoke(createSvpBooking, input)).toMatchObject({
+      ok: true,
+      data: { reservationId: "987", paid: true, paymentRequired: false },
+    });
+    expect(mocks.request.mock.calls.slice(4).map((call) => call[1])).toEqual([
+      "/individual_labor_space/user_balance/account-1",
+      ...(status === 404 ? ["/users/account-1/balance"] : []),
+      "/individual_labor_space/reservation_credits/use",
+    ]);
+  });
+
   it.each([response({}, 422), response({ exam_session_id: 0 }), response({})])(
     "does not create a booking without an assigned seat",
     async (hold) => {

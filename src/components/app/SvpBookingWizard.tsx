@@ -1354,19 +1354,23 @@ export function SvpBookingWizard() {
       setStage("done");
       localRecordRef.current = localRecord;
       try {
-        const { data: charge } = await supabase.rpc("wallet_charge_booking", {
+        const { data: charge, error } = await supabase.rpc("wallet_charge_booking", {
           _reservation_id: booking.reservationId,
           _amount: SVP_BOOKING_COST_BDT,
         });
-        const result = charge as { ok?: boolean; reason?: string } | null;
-        if (result && result.ok === false) {
+        const result = charge as { ok?: boolean; reason?: string; duplicate?: boolean } | null;
+        if (error || result?.ok !== true) {
           toast.error(
-            result.reason === "insufficient"
+            !error && result?.reason === "insufficient"
               ? `Booking created, but the wallet is short for the ৳${SVP_BOOKING_COST_BDT} fee. Please top up.`
               : "Booking created, but the booking fee could not be charged.",
           );
         } else {
-          toast.success(`৳${SVP_BOOKING_COST_BDT} booking fee charged from your balance.`);
+          toast.success(
+            result.duplicate
+              ? "The booking fee was already recorded for this reservation."
+              : `৳${SVP_BOOKING_COST_BDT} booking fee charged from your balance.`,
+          );
         }
       } catch {
         toast.error("Booking created, but the wallet fee could not be recorded.");

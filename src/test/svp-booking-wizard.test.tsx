@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { SvpBookingWizard } from "@/components/app/SvpBookingWizard";
 
 const mocks = vi.hoisted(() => ({
@@ -84,6 +85,10 @@ vi.mock("@/lib/takamol-availability.functions", () => ({
 
 vi.mock("@/lib/svp-local-record", () => ({
   saveSvpLocalBookingRecord: (_client: unknown, payload: unknown) => mocks.insert(payload),
+}));
+
+vi.mock("@/lib/data", () => ({
+  settingsQ: { queryKey: ["settings"], queryFn: async () => ({}) },
 }));
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -213,7 +218,10 @@ beforeEach(() => {
     ok: true,
     message: "OTP sent to the saved SVP email.",
   });
-  mocks.rpc.mockResolvedValue({ data: 1000, error: null });
+  mocks.rpc.mockImplementation(async (name: string) => ({
+    data: name === "wallet_my_balance" ? 1000 : { ok: true, balance: 900 },
+    error: null,
+  }));
   mocks.payments.mockResolvedValue({ ok: true, data: [] });
   mocks.notifications.mockResolvedValue({ ok: true, data: [] });
   mocks.cancel.mockResolvedValue({
@@ -1693,6 +1701,24 @@ describe("automatic SVP candidate record flow", () => {
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.insert).toHaveBeenCalledTimes(2);
     expect(mocks.insert.mock.calls[1]?.[0]).toEqual(mocks.insert.mock.calls[0]?.[0]);
+  });
+
+  it("reports a wallet debit RPC failure and still saves the existing reservation", async () => {
+    mocks.rpc.mockImplementation(async (name: string) =>
+      name === "wallet_my_balance"
+        ? { data: 1000, error: null }
+        : { data: null, error: { message: "Could not find the function" } },
+    );
+    renderWizard();
+    await openConfirmation();
+    submitConfirmedBooking();
+
+    await waitFor(() => expect(mocks.insert).toHaveBeenCalledTimes(1));
+    expect(toast.error).toHaveBeenCalledWith(
+      "Booking created, but the booking fee could not be charged.",
+    );
+    expect(toast.success).not.toHaveBeenCalledWith("৳100 booking fee charged from your balance.");
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 
   it("records pending-payment reservations without claiming they are confirmed", async () => {
