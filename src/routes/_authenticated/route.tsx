@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app/AppShell";
 import { canAccessPath, homeForRoles, isManager } from "@/lib/roles";
@@ -8,24 +9,23 @@ export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async ({ location }) => {
     const { data, error } = await supabase.auth.getUser();
+    if (error && !isAuthSessionMissingError(error) && error.status !== 401)
+      throw new Error("সেশন যাচাই করা যাচ্ছে না। আবার চেষ্টা করুন।");
     if (error || !data.user) throw redirect({ to: "/auth" });
-    const [reason, rolesRes, activeRes] = await Promise.all([
+    const [reason, rolesRes] = await Promise.all([
       checkDeviceSession(),
       supabase.from("user_roles").select("role").eq("user_id", data.user.id),
-      supabase.rpc("is_active_account", { _user_id: data.user.id }),
     ]);
     if (reason) {
       await forceSignOut(reason);
       throw redirect({ to: "/auth" });
     }
-    if (rolesRes.error) {
-      await forceSignOut("অ্যাক্সেস যাচাই করা যায়নি। আবার লগইন করুন।");
-      throw redirect({ to: "/auth" });
-    }
+    if (rolesRes.error) throw new Error("অ্যাক্সেস যাচাই করা যায়নি। আবার চেষ্টা করুন।");
     const roles = (rolesRes.data ?? []).map((r) => r.role as string);
     if (roles.length === 0) throw redirect({ to: "/portal" });
     if (!canAccessPath(location.pathname, roles)) throw redirect({ to: homeForRoles(roles) });
     if (!isManager(roles)) {
+      const activeRes = await supabase.rpc("is_active_account", { _user_id: data.user.id });
       if (activeRes.error || activeRes.data === null)
         throw new Error("অ্যাকাউন্ট যাচাই করা যাচ্ছে না। আবার চেষ্টা করুন।");
       const active = activeRes.data;

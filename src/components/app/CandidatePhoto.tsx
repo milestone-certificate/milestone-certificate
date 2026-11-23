@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -10,18 +10,39 @@ export function CandidatePhoto({
   path,
   name,
   size = 48,
+  deferUntilVisible = false,
 }: {
   path: string | null | undefined;
   name: string;
   size?: number;
+  deferUntilVisible?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
   const displaySize = Math.max(64, size);
   const usable = !!path && isImage(path);
+  const photoRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!deferUntilVisible || !usable || visible || typeof IntersectionObserver === "undefined")
+      return;
+    const element = photoRef.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setVisible(true);
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [deferUntilVisible, usable, visible]);
   const { data: url } = useQuery({
     queryKey: ["photo", path],
-    enabled: usable,
+    enabled:
+      usable && (!deferUntilVisible || visible || typeof IntersectionObserver === "undefined"),
     staleTime: path?.endsWith("/agent-profile.jpg") ? 60 * 1000 : 50 * 60 * 1000,
     refetchInterval: path?.endsWith("/agent-profile.jpg") ? 60 * 1000 : false,
     queryFn: async () => {
@@ -42,6 +63,7 @@ export function CandidatePhoto({
   return (
     <>
       <div
+        ref={photoRef}
         style={{ width: displaySize, height: displaySize }}
         className={`shrink-0 overflow-hidden rounded-xl border bg-muted ring-2 ring-primary/20 ${url ? "cursor-zoom-in transition-transform hover:scale-105" : ""}`}
         onClick={

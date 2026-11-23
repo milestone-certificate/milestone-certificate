@@ -37,8 +37,10 @@ export const Route = createFileRoute("/_authenticated/candidates/")({
   component: CandidatesPage,
 });
 
+const PAGE_SIZE = 24;
+
 function CandidatesPage() {
-  const { data: cands = [], isLoading } = useQuery(candidatesQ);
+  const { data: cands = [], isLoading, isLoadingError, isFetching, refetch } = useQuery(candidatesQ);
   const { data: exams = [] } = useQuery(examsQ);
   const { data: occ } = useQuery(occQ);
   const { data: ttc } = useQuery(ttcQ);
@@ -52,17 +54,28 @@ function CandidatesPage() {
   const [fStatus, setFStatus] = useState("");
   const [fDate, setFDate] = useState("");
   const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(1);
+
+  const changeFilter = (setValue: (value: string) => void) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setValue(event.target.value);
+      setPage(1);
+    };
 
   const byCand = useMemo(() => {
     const m = new Map<string, Exam[]>();
-    exams.forEach((e) => m.set(e.candidate_id, [...(m.get(e.candidate_id) ?? []), e]));
+    for (const exam of exams) {
+      const entries = m.get(exam.candidate_id);
+      if (entries) entries.push(exam);
+      else m.set(exam.candidate_id, [exam]);
+    }
     return m;
   }, [exams]);
   const districts = [...new Set(cands.map((c) => c.district).filter(Boolean))] as string[];
   const t = todayStr();
 
+  const s = q.trim().toLowerCase();
   const list = cands.filter((c) => {
-    const s = q.trim().toLowerCase();
     if (
       s &&
       ![c.name, c.passport_no, c.registration_no, c.mobile, occName(c.occupation_id)].some((v) =>
@@ -83,6 +96,10 @@ function CandidatesPage() {
     if (fStatus === "none" && ex.length > 0) return false;
     return true;
   });
+  const pageCount = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const visibleCandidates = list.slice(start, start + PAGE_SIZE);
 
   return (
     <div>
@@ -101,14 +118,14 @@ function CandidatesPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={changeFilter(setQ)}
             placeholder="নাম, পাসপোর্ট, রেজিস্ট্রেশন, মোবাইল বা পেশা দিয়ে খুঁজুন..."
             className="h-11 pl-9"
             autoFocus
           />
         </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
-          <NativeSelect value={fTtc} onChange={(e) => setFTtc(e.target.value)}>
+          <NativeSelect value={fTtc} onChange={changeFilter(setFTtc)}>
             <option value="">সব টিটিসি</option>
             {ttc?.map((x) => (
               <option key={x.id} value={x.id}>
@@ -116,7 +133,7 @@ function CandidatesPage() {
               </option>
             ))}
           </NativeSelect>
-          <NativeSelect value={fOcc} onChange={(e) => setFOcc(e.target.value)}>
+          <NativeSelect value={fOcc} onChange={changeFilter(setFOcc)}>
             <option value="">সব পেশা</option>
             {occ?.map((x) => (
               <option key={x.id} value={x.id}>
@@ -124,13 +141,13 @@ function CandidatesPage() {
               </option>
             ))}
           </NativeSelect>
-          <NativeSelect value={fDist} onChange={(e) => setFDist(e.target.value)}>
+          <NativeSelect value={fDist} onChange={changeFilter(setFDist)}>
             <option value="">সব জেলা</option>
             {districts.map((d) => (
               <option key={d}>{d}</option>
             ))}
           </NativeSelect>
-          <NativeSelect value={fResult} onChange={(e) => setFResult(e.target.value)}>
+          <NativeSelect value={fResult} onChange={changeFilter(setFResult)}>
             <option value="">সব রেজাল্ট</option>
             {RESULTS.map((r) => (
               <option key={r} value={r}>
@@ -138,7 +155,7 @@ function CandidatesPage() {
               </option>
             ))}
           </NativeSelect>
-          <NativeSelect value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+          <NativeSelect value={fStatus} onChange={changeFilter(setFStatus)}>
             <option value="">সব অবস্থা</option>
             <option value="upcoming">আসন্ন পরীক্ষা আছে</option>
             <option value="waiting">রেজাল্টের অপেক্ষায়</option>
@@ -147,7 +164,7 @@ function CandidatesPage() {
           <DateSelect
             autoToday={false}
             value={fDate}
-            onChange={(e) => setFDate(e.target.value)}
+            onChange={changeFilter(setFDate)}
             title="পরীক্ষার তারিখ"
             className="col-span-2"
           />
@@ -156,11 +173,18 @@ function CandidatesPage() {
 
       {isLoading ? (
         <Empty>লোড হচ্ছে...</Empty>
+      ) : isLoadingError ? (
+        <Empty>
+          <p>পরীক্ষার্থীর তালিকা লোড করা যায়নি।</p>
+          <Button className="mt-3" variant="outline" disabled={isFetching} onClick={() => void refetch()}>
+            আবার চেষ্টা করুন
+          </Button>
+        </Empty>
       ) : list.length === 0 ? (
         <Empty>কোনো পরীক্ষার্থী পাওয়া যায়নি</Empty>
       ) : (
         <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {list.map((c) => {
+          {visibleCandidates.map((c) => {
             const ex = byCand.get(c.id) ?? [];
             const last = ex[0];
             const next = ex
@@ -174,7 +198,7 @@ function CandidatesPage() {
                 className={`card-surface block min-w-0 border-l-4 p-4 transition-all duration-300 hover:-translate-y-0.5 ${ex.some((e) => e.result === "PASS") ? "border-l-emerald-500 shadow-[0_0_14px_-4px_rgb(16_185_129/0.6)] hover:shadow-[0_0_22px_-4px_rgb(16_185_129/0.8)]" : "border-l-amber-400 shadow-[0_0_14px_-4px_rgb(251_191_36/0.55)] hover:shadow-[0_0_22px_-4px_rgb(251_191_36/0.8)]"}`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <CandidatePhoto path={c.photo_url} name={c.name} />
+                  <CandidatePhoto path={c.photo_url} name={c.name} deferUntilVisible />
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-semibold">{c.name}</div>
                     <div className="text-xs text-muted-foreground">
@@ -229,7 +253,20 @@ function CandidatesPage() {
           })}
         </div>
       )}
-      <CandidateDialog open={open} onOpenChange={setOpen} />
+      {pageCount > 1 && (
+        <nav aria-label="পরীক্ষার্থী তালিকার পৃষ্ঠা" className="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <Button variant="outline" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
+            আগের পৃষ্ঠা
+          </Button>
+          <span aria-live="polite" className="text-sm text-muted-foreground">
+            পৃষ্ঠা {bn(currentPage)} / {bn(pageCount)}
+          </span>
+          <Button variant="outline" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>
+            পরের পৃষ্ঠা
+          </Button>
+        </nav>
+      )}
+      {open && <CandidateDialog open={open} onOpenChange={setOpen} />}
     </div>
   );
 }
